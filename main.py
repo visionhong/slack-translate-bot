@@ -146,18 +146,94 @@ def get_request_id(user_id: str, text: str) -> str:
     content = f"{user_id}:{text}"
     return hashlib.md5(content.encode()).hexdigest()[:12]
 
-async def try_open_modal_or_fallback(trigger_id: str, response_url: str, text: str, translated_text: str):
-    """모달을 시도하고 실패하면 메시지로 대체"""
+async def open_initial_modal(trigger_id: str, text: str):
+    """번역 시작 모달 열기"""
     try:
-        # 먼저 모달 시도
+        bot_token = os.getenv('SLACK_BOT_TOKEN')
+        if not bot_token:
+            logger.error("❌ SLACK_BOT_TOKEN not found")
+            return None
+        
+        # 번역 중 모달 블록 구성
+        modal_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "🔄 *번역 중...*"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*원문:*\n```{text}```"
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*번역:*\n⚙️ 번역 중입니다..."
+                }
+            }
+        ]
+        
+        modal_payload = {
+            "trigger_id": trigger_id,
+            "view": {
+                "type": "modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "번역 결과"
+                },
+                "blocks": modal_blocks
+            }
+        }
+        
+        logger.info("📤 Opening initial translation modal...")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://slack.com/api/views.open",
+                json=modal_payload,
+                headers={
+                    'Authorization': f'Bearer {bot_token}',
+                    'Content-Type': 'application/json'
+                },
+                timeout=10.0
+            )
+            
+            result = response.json()
+            logger.info(f"Initial modal response: {result}")
+            
+            if result.get('ok'):
+                view_id = result['view']['id']
+                logger.info(f"✅ Successfully opened initial modal with view_id: {view_id}")
+                return view_id
+            else:
+                error = result.get('error', 'unknown')
+                logger.error(f"❌ Failed to open initial modal: {error}")
+                return None
+                
+    except Exception as e:
+        logger.error(f"❌ Error opening initial modal: {e}")
+        return None
+
+async def update_modal_with_translation(view_id: str, text: str, translated_text: str, response_url: str):
+    """모달을 번역 결과로 업데이트"""
+    try:
         bot_token = os.getenv('SLACK_BOT_TOKEN')
         if not bot_token:
             logger.error("❌ SLACK_BOT_TOKEN not found, using fallback")
             await send_fallback_message(response_url, text, translated_text)
             return
         
-        # 모달용 블록 구성
-        modal_blocks = [
+        # 번역 완료 모달 블록 구성
+        updated_blocks = [
             {
                 "type": "section",
                 "text": {
@@ -191,24 +267,24 @@ async def try_open_modal_or_fallback(trigger_id: str, response_url: str, text: s
             }
         ]
         
-        modal_payload = {
-            "trigger_id": trigger_id,
+        update_payload = {
+            "view_id": view_id,
             "view": {
                 "type": "modal",
                 "title": {
                     "type": "plain_text",
                     "text": "번역 결과"
                 },
-                "blocks": modal_blocks
+                "blocks": updated_blocks
             }
         }
         
-        logger.info("📤 Attempting to open translation modal...")
+        logger.info(f"🔄 Updating modal {view_id} with translation result...")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "https://slack.com/api/views.open",
-                json=modal_payload,
+                "https://slack.com/api/views.update",
+                json=update_payload,
                 headers={
                     'Authorization': f'Bearer {bot_token}',
                     'Content-Type': 'application/json'
@@ -217,18 +293,18 @@ async def try_open_modal_or_fallback(trigger_id: str, response_url: str, text: s
             )
             
             result = response.json()
-            logger.info(f"Modal response: {result}")
+            logger.info(f"Update modal response: {result}")
             
             if result.get('ok'):
-                logger.info("✅ Successfully opened translation modal")
+                logger.info("✅ Successfully updated modal with translation")
             else:
                 error = result.get('error', 'unknown')
-                logger.warning(f"⚠️ Modal failed ({error}), using fallback message")
-                # trigger_id 만료 등으로 모달 실패시 메시지로 대체
+                logger.warning(f"⚠️ Modal update failed ({error}), using fallback message")
+                # view_id 만료 등으로 모달 업데이트 실패시 메시지로 대체
                 await send_fallback_message(response_url, text, translated_text)
                 
     except Exception as e:
-        logger.error(f"❌ Error with modal, using fallback: {e}")
+        logger.error(f"❌ Error updating modal, using fallback: {e}")
         await send_fallback_message(response_url, text, translated_text)
 
 async def send_fallback_message(response_url: str, text: str, translated_text: str):
@@ -329,7 +405,7 @@ def create_text_blocks(text: str, max_chars: int = 2800) -> list:
 
 async def process_translation(
     text: str, 
-    trigger_id: str,
+    view_id: str,
     response_url: str,
     user_id: str, 
     request_id: str
@@ -341,16 +417,23 @@ async def process_translation(
         # 번역 수행
         translated_text = await translation_service.translate(text)
         
-        # 모달 시도, 실패시 메시지로 대체
-        await try_open_modal_or_fallback(trigger_id, response_url, text, translated_text)
+        # 모달 업데이트 (실패시 메시지로 대체)
+        if view_id:
+            await update_modal_with_translation(view_id, text, translated_text, response_url)
+        else:
+            await send_fallback_message(response_url, text, translated_text)
+        
         logger.info(f"✅ Translation completed for request {request_id}")
         
     except Exception as e:
         logger.error(f"❌ Translation processing error: {e}")
         
-        # 에러 표시 (모달 시도 후 메시지로 대체)
+        # 에러 표시 (모달 업데이트 시도 후 메시지로 대체)
         try:
-            await try_open_modal_or_fallback(trigger_id, response_url, text, f"번역 오류: {str(e)}")
+            if view_id:
+                await update_modal_with_translation(view_id, text, f"번역 오류: {str(e)}", response_url)
+            else:
+                await send_fallback_message(response_url, text, f"번역 오류: {str(e)}")
         except:
             logger.error("Failed to show error message")
         
@@ -415,10 +498,13 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 active_requests.add(request_id)
                 
                 if text:
+                    # 즉시 번역 모달 열기
+                    view_id = await open_initial_modal(trigger_id, text)
+                    
                     # 백그라운드에서 번역 처리
                     background_tasks.add_task(
                         process_translation,
-                        text, trigger_id, response_url, user_id, request_id
+                        text, view_id, response_url, user_id, request_id
                     )
                     
                     # 즉시 200 응답 (빈 응답)
