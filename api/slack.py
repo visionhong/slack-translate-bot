@@ -34,21 +34,58 @@ class handler(BaseHTTPRequestHandler):
             
             # Initialize data variable to avoid scope issues
             data = None
+            parsed_data = None
+            content_type = self.headers.get('Content-Type', '')
             
-            # Handle Slack URL verification first
+            # Parse request based on content type
             if post_data:
-                try:
-                    data = json.loads(post_data)
-                    if data.get('type') == 'url_verification':
-                        challenge = data.get('challenge', '')
-                        self.send_response(200)
-                        self.send_header('Content-type', 'text/plain')
-                        self.end_headers()
-                        self.wfile.write(challenge.encode())
-                        return
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse JSON from Slack request")
-                    data = None
+                if 'application/json' in content_type:
+                    try:
+                        data = json.loads(post_data)
+                        parsed_data = data
+                        # Handle Slack URL verification for JSON requests
+                        if data.get('type') == 'url_verification':
+                            challenge = data.get('challenge', '')
+                            self.send_response(200)
+                            self.send_header('Content-type', 'text/plain')
+                            self.end_headers()
+                            self.wfile.write(challenge.encode())
+                            return
+                        logger.info(f"Parsed JSON request: {data.get('type', 'unknown')}")
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse JSON from Slack request")
+                        data = None
+                elif 'application/x-www-form-urlencoded' in content_type:
+                    try:
+                        # Parse form-encoded data (used by slash commands, interactions)
+                        parsed_data = urllib.parse.parse_qs(post_data)
+                        # Convert single-item lists to strings for easier access
+                        parsed_data = {k: v[0] if len(v) == 1 else v for k, v in parsed_data.items()}
+                        
+                        # Check if this is an interaction payload (JSON embedded in form data)
+                        if 'payload' in parsed_data:
+                            try:
+                                data = json.loads(parsed_data['payload'])
+                                logger.info(f"Parsed Slack interaction: {data.get('type', 'unknown')}")
+                            except json.JSONDecodeError:
+                                logger.warning("Failed to parse payload JSON from form data")
+                        else:
+                            # This is likely a slash command
+                            data = parsed_data
+                            logger.info(f"Parsed Slack command: {data.get('command', 'unknown')}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to parse form-encoded data: {e}")
+                        parsed_data = None
+                else:
+                    logger.info(f"Processing request with content type: {content_type}")
+                    # Try JSON first as fallback
+                    try:
+                        data = json.loads(post_data)
+                        parsed_data = data
+                    except json.JSONDecodeError:
+                        # If not JSON, treat as raw data
+                        parsed_data = {"raw_body": post_data}
             
             # Process with Slack Bolt if available
             if slack_app:
