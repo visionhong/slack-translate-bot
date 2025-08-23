@@ -117,14 +117,12 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                 stats['user_translations'][user_id] = 0
             stats['user_translations'][user_id] += 1
         
-        # Detect source language for proper labeling
+        # Log translation details for debugging
         source_lang = translation_service.detect_language(original_text)
-        if source_lang == 'ko':
-            original_label = "원본 (한국어)"
-            translated_label = "번역 (English)"
-        else:
-            original_label = "원본 (English)"
-            translated_label = "번역 (한국어)"
+        logger.info(f"Detected source language: {source_lang}")
+        logger.info(f"Original text length: {len(original_text)}")
+        logger.info(f"Translated text length: {len(translated_text)}")
+        logger.info(f"Translation result preview: {translated_text[:100]}...")
         
         # Split long text into multiple section blocks if needed
         def create_text_sections(text, max_chars=2800):
@@ -165,15 +163,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
             return sections
         
         # Create blocks with sections for original and translated text
-        blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{original_label}*"
-                }
-            }
-        ]
+        blocks = []
         
         # Add original text sections
         blocks.extend(create_text_sections(original_text))
@@ -181,15 +171,6 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
         # Add divider
         blocks.append({
             "type": "divider"
-        })
-        
-        # Add translated text header
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*{translated_label}*"
-            }
         })
         
         # Add translated text sections
@@ -264,14 +245,12 @@ async def show_translation_result_update(client, view_id, original_text, user_id
             stats['user_translations'][user_id] = 0
         stats['user_translations'][user_id] += 1
         
-        # Detect source language
+        # Log translation details for debugging
         source_lang = translation_service.detect_language(original_text)
-        if source_lang == 'ko':
-            original_label = "원본 (한국어)"
-            translated_label = "번역 (English)"
-        else:
-            original_label = "원본 (English)"
-            translated_label = "번역 (한국어)"
+        logger.info(f"Update - Detected source language: {source_lang}")
+        logger.info(f"Update - Original text length: {len(original_text)}")
+        logger.info(f"Update - Translated text length: {len(translated_text)}")
+        logger.info(f"Update - Translation result preview: {translated_text[:100]}...")
         
         # Split long text into multiple section blocks if needed
         def create_text_sections(text, max_chars=2800):
@@ -312,15 +291,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
             return sections
         
         # Create blocks with sections for original and translated text
-        blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{original_label}*"
-                }
-            }
-        ]
+        blocks = []
         
         # Add original text sections
         blocks.extend(create_text_sections(original_text))
@@ -328,15 +299,6 @@ async def show_translation_result_update(client, view_id, original_text, user_id
         # Add divider
         blocks.append({
             "type": "divider"
-        })
-        
-        # Add translated text header
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*{translated_label}*"
-            }
         })
         
         # Add translated text sections
