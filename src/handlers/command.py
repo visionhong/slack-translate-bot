@@ -17,6 +17,23 @@ stats: Dict[str, Any] = {
 }
 
 
+def extract_plain_text_from_rich_text(rich_text_value):
+    """Extract plain text from Slack rich text format"""
+    if not rich_text_value or not rich_text_value.get('elements'):
+        return ""
+    
+    text_parts = []
+    for element in rich_text_value.get('elements', []):
+        if element.get('type') == 'rich_text_section':
+            for sub_element in element.get('elements', []):
+                if sub_element.get('type') == 'text':
+                    text_parts.append(sub_element.get('text', ''))
+                elif sub_element.get('type') == 'link':
+                    text_parts.append(sub_element.get('url', ''))
+    
+    return '\n'.join(text_parts).strip()
+
+
 def handle_translate_command(ack: Ack, client, command: dict):
     ack()
     
@@ -58,14 +75,12 @@ async def show_translation_input_modal(client, trigger_id):
                         "type": "input",
                         "block_id": "text_input_block",
                         "element": {
-                            "type": "plain_text_input",
+                            "type": "rich_text_input",
                             "action_id": "text_input",
-                            "multiline": True,
-                            "max_length": 3000,
                             "focus_on_load": True,
                             "placeholder": {
                                 "type": "plain_text",
-                                "text": "번역할 텍스트를 입력하세요... (최대 3,000자)"
+                                "text": "번역할 텍스트를 입력하세요..."
                             }
                         },
                         "label": {
@@ -129,22 +144,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{original_label}*"
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "original_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "original_text",
-                            "multiline": True,
-                            "max_length": 3000,
-                            "initial_value": original_text
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": "원문"
+                            "text": f"*{original_label}*\n```{original_text}```"
                         }
                     },
                     {
@@ -154,22 +154,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{translated_label}*"
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "translated_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "translated_text",
-                            "multiline": True,
-                            "max_length": 3000,
-                            "initial_value": translated_text
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": "번역문"
+                            "text": f"*{translated_label}*\n```{translated_text}```"
                         }
                     },
                     {
@@ -177,7 +162,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요! 텍스트 영역은 자동으로 확장됩니다."
+                                "text": "💡 텍스트를 선택하고 복사해서 사용하세요! 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
                             }
                         ]
                     }
@@ -196,9 +181,12 @@ def handle_translation_input_modal(ack: Ack, body: dict, client):
     ack()
     
     try:
-        # Extract text from modal
-        text_input = body['view']['state']['values']['text_input_block']['text_input']['value']
+        # Extract rich text from modal and convert to plain text
+        rich_text_input = body['view']['state']['values']['text_input_block']['text_input']['rich_text_value']
         user_id = body['user']['id']
+        
+        # Convert rich text to plain text
+        text_input = extract_plain_text_from_rich_text(rich_text_input)
         
         if not text_input or not text_input.strip():
             return
@@ -250,22 +238,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{original_label}*"
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "original_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "original_text",
-                            "multiline": True,
-                            "max_length": 3000,
-                            "initial_value": original_text
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": "원문"
+                            "text": f"*{original_label}*\n```{original_text}```"
                         }
                     },
                     {
@@ -275,22 +248,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{translated_label}*"
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "translated_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "translated_text",
-                            "multiline": True,
-                            "max_length": 3000,
-                            "initial_value": translated_text
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": "번역문"
+                            "text": f"*{translated_label}*\n```{translated_text}```"
                         }
                     },
                     {
@@ -298,7 +256,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요! 텍스트 영역은 자동으로 확장됩니다."
+                                "text": "💡 텍스트를 선택하고 복사해서 사용하세요! 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
                             }
                         ]
                     }
