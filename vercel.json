@@ -16,11 +16,5 @@
       "source": "/api/health",
       "destination": "/api/health"
     }
-  ],
-  "env": {
-    "SLACK_BOT_TOKEN": "@slack_bot_token",
-    "SLACK_SIGNING_SECRET": "@slack_signing_secret",
-    "AZURE_OPENAI_API_KEY": "@azure_openai_api_key",
-    "AZURE_OPENAI_ENDPOINT": "@azure_openai_endpoint"
-  }
+  ]
 }
