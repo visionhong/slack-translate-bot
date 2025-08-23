@@ -326,13 +326,66 @@ class handler(BaseHTTPRequestHandler):
     def _show_translation_modal(self, trigger_id, original_text, translated_text, source_lang):
         """Show modal with original text and translation result"""
         try:
-            # Set language labels
-            if source_lang == 'ko':
-                original_label = "한국어"
-                translated_label = "English"
-            else:
-                original_label = "English"
-                translated_label = "한국어"
+            # Split long text into multiple section blocks if needed
+            def create_text_sections(text, max_chars=2800):
+                if len(text) <= max_chars:
+                    return [{
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"```{text}```"
+                        }
+                    }]
+                
+                sections = []
+                start = 0
+                while start < len(text):
+                    end = min(start + max_chars, len(text))
+                    # Try to break at word boundary if not at end
+                    if end < len(text):
+                        last_space = text.rfind(' ', start, end)
+                        last_newline = text.rfind('\n', start, end)
+                        break_point = max(last_space, last_newline)
+                        if break_point > start:
+                            end = break_point
+                    
+                    chunk = text[start:end]
+                    sections.append({
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"```{chunk}```"
+                        }
+                    })
+                    
+                    start = end
+                
+                return sections
+            
+            # Create blocks with sections for original and translated text
+            blocks = []
+            
+            # Add original text sections
+            blocks.extend(create_text_sections(original_text))
+            
+            # Add divider
+            blocks.append({
+                "type": "divider"
+            })
+            
+            # Add translated text sections
+            blocks.extend(create_text_sections(translated_text))
+            
+            # Add context help
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💡 텍스트를 선택하여 복사하세요. 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
+                    }
+                ]
+            })
             
             modal_payload = {
                 "trigger_id": trigger_id,
@@ -346,25 +399,7 @@ class handler(BaseHTTPRequestHandler):
                         "type": "plain_text",
                         "text": "닫기"
                     },
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"*원문:*\n{original_text[:500]}"
-                            }
-                        },
-                        {
-                            "type": "divider"
-                        },
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"*번역:*\n{translated_text[:500]}"
-                            }
-                        }
-                    ]
+                    "blocks": blocks
                 }
             }
             
