@@ -163,10 +163,12 @@ class handler(BaseHTTPRequestHandler):
                                     modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
                                     
                                     if modal_success:
-                                        translation_response = {
-                                            "response_type": "ephemeral",
-                                            "text": ""
-                                        }
+                                        # Modal opened successfully - no Slack response needed
+                                        self.send_response(200)
+                                        self.send_header('Content-type', 'text/plain')
+                                        self.end_headers()
+                                        self.wfile.write(b'')
+                                        return
                                     else:
                                         # Fallback: show inline response
                                         
@@ -222,10 +224,12 @@ class handler(BaseHTTPRequestHandler):
                                 modal_success = self._show_input_modal(trigger_id)
                                 
                                 if modal_success:
-                                    translation_response = {
-                                        "response_type": "ephemeral",
-                                        "text": ""
-                                    }
+                                    # Modal opened successfully - no Slack response needed
+                                    self.send_response(200)
+                                    self.send_header('Content-type', 'text/plain')
+                                    self.end_headers()
+                                    self.wfile.write(b'')
+                                    return
                                 else:
                                     translation_response = {
                                         "response_type": "ephemeral",
