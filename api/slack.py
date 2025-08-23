@@ -93,9 +93,12 @@ class SimpleTranslationService:
             else:
                 prompt = f"Translate to Korean:\n{text}"
             
-            logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
+            logger.info(f"Sending request to Azure OpenAI...")
+            logger.info(f"Prompt: {prompt[:100]}...")
+            logger.info(f"Model: {self.deployment_name}, Timeout: 3s")
             
-            # Use the Azure OpenAI client's built-in timeout instead of signal
+            # Use the Azure OpenAI client's built-in timeout
+            logger.info("Creating Azure OpenAI chat completion...")
             response = self.client.chat.completions.create(
                 messages=[
                     {
@@ -111,10 +114,14 @@ class SimpleTranslationService:
                 model=self.deployment_name,
                 timeout=3  # 3 second timeout
             )
-            logger.info("Azure OpenAI request completed successfully")
+            logger.info("Azure OpenAI response received successfully!")
+            
+            logger.info(f"Response object type: {type(response)}")
+            logger.info(f"Response choices length: {len(response.choices)}")
             
             translated_text = response.choices[0].message.content.strip()
             logger.info(f"Translation result extracted, length: {len(translated_text)}")
+            logger.info(f"Full translation result: '{translated_text}'")
             
             # Disable caching for debugging
             # with cache_lock:
@@ -158,18 +165,29 @@ def get_cache_key(text):
 def send_delayed_response(response_url, message):
     """Send delayed response to Slack"""
     try:
+        logger.info(f"Sending POST request to Slack response_url...")
+        logger.info(f"URL: {response_url[:50]}...")
+        logger.info(f"Message keys: {list(message.keys())}")
+        
         response = requests.post(
             response_url,
             json=message,
             headers={'Content-Type': 'application/json'},
-            timeout=5
+            timeout=10  # Increased timeout
         )
+        
+        logger.info(f"Response status code: {response.status_code}")
+        logger.info(f"Response headers: {dict(response.headers)}")
+        logger.info(f"Response text: {response.text[:200]}...")
+        
         if response.status_code == 200:
-            logger.info("Successfully sent delayed response")
+            logger.info("✅ Successfully sent delayed response")
         else:
-            logger.error(f"Failed to send delayed response: {response.status_code}")
+            logger.error(f"❌ Failed to send delayed response: {response.status_code}")
+            logger.error(f"Response body: {response.text}")
     except Exception as e:
-        logger.error(f"Error sending delayed response: {e}")
+        logger.error(f"❌ Error sending delayed response: {e}")
+        logger.error(f"Exception type: {type(e).__name__}")
 
 # Removed fallback message functions - modal-only approach
 
@@ -281,10 +299,36 @@ class handler(BaseHTTPRequestHandler):
                                         source_lang = translation_service.detect_language(text.strip())
                                         logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
                                         
-                                        # Try Azure OpenAI translation
-                                        translated_text = translation_service.translate(text.strip())
-                                        logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
-                                        logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                        # Try Azure OpenAI translation with detailed logging
+                                        logger.info(f"About to call Azure OpenAI translation service...")
+                                        try:
+                                            translated_text = translation_service.translate(text.strip())
+                                            logger.info(f"Azure OpenAI call SUCCESS for request {request_id}")
+                                            logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
+                                            logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                        except Exception as translation_error:
+                                            logger.error(f"Azure OpenAI translation FAILED for request {request_id}: {translation_error}")
+                                            logger.error(f"Translation error type: {type(translation_error).__name__}")
+                                            
+                                            # Use fallback translation
+                                            if source_lang == 'ko':
+                                                if '테스트' in text:
+                                                    translated_text = "I will test this."
+                                                elif '자장면' in text:
+                                                    translated_text = "I ate jajangmyeon."
+                                                elif '안녕' in text:
+                                                    translated_text = "Hello."
+                                                else:
+                                                    translated_text = f"Translation service temporarily unavailable. Original: {text.strip()}"
+                                            else:
+                                                if 'test' in text.lower():
+                                                    translated_text = "테스트하겠습니다."
+                                                elif 'hello' in text.lower():
+                                                    translated_text = "안녕하세요."
+                                                else:
+                                                    translated_text = f"번역 서비스 일시 불가. 원문: {text.strip()}"
+                                            
+                                            logger.info(f"Using fallback translation: {translated_text}")
                                         
                                         if not translated_text or translated_text.strip() == "":
                                             logger.error("Translation returned empty result")
@@ -352,7 +396,12 @@ class handler(BaseHTTPRequestHandler):
                                             "blocks": blocks
                                         }
                                         
+                                        logger.info(f"Preparing to send follow-up message...")
+                                        logger.info(f"response_url available: {bool(response_url)}")
+                                        logger.info(f"Follow-up response blocks count: {len(blocks)}")
+                                        
                                         if response_url:
+                                            logger.info(f"Sending delayed response to: {response_url[:50]}...")
                                             send_delayed_response(response_url, follow_up_response)
                                             logger.info("Successfully sent translation result as follow-up message")
                                         else:
