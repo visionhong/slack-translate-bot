@@ -67,7 +67,7 @@ class SimpleTranslationService:
                     {"role": "system", "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."},
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=1000
+                max_completion_tokens=500
             )
             
             translated_text = response.choices[0].message.content.strip()
@@ -154,22 +154,22 @@ class handler(BaseHTTPRequestHandler):
                             user_id = data.get('user_id')
                             
                             if text.strip():
-                                # Attempt translation
+                                # Translate immediately and show modal (must be within 3 seconds)
                                 try:
-                                    translated_text = translation_service.translate(text.strip())
                                     source_lang = translation_service.detect_language(text)
+                                    translated_text = translation_service.translate(text.strip())
                                     
-                                    # Try to show translation modal
+                                    # Try to show modal with results
                                     modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
                                     
                                     if modal_success:
-                                        response_text = "🌐 Opening translation modal..."
                                         translation_response = {
                                             "response_type": "ephemeral",
-                                            "text": response_text
+                                            "text": "🌐 Opening translation modal..."
                                         }
                                     else:
-                                        # Fallback to inline response if modal fails
+                                        # Fallback: show inline response
+                                        
                                         if source_lang == 'ko':
                                             original_label = "한국어"
                                             translated_label = "English"
@@ -209,13 +209,13 @@ class handler(BaseHTTPRequestHandler):
                                                 }
                                             ]
                                         }
-                                    
-                                except Exception as e:
-                                    logger.error(f"Translation failed: {e}")
-                                    translation_response = {
-                                        "response_type": "ephemeral",
-                                        "text": f"Translation error: {str(e)}"
-                                    }
+                                        
+                                    except Exception as e:
+                                        logger.error(f"Translation failed: {e}")
+                                        translation_response = {
+                                            "response_type": "ephemeral",
+                                            "text": f"Translation error: {str(e)}"
+                                        }
                                     
                             else:
                                 # Try to show input modal for empty commands
@@ -268,6 +268,7 @@ class handler(BaseHTTPRequestHandler):
             }
             
             self.wfile.write(json.dumps(error_response).encode())
+    
     
     def _show_input_modal(self, trigger_id):
         """Show modal for text input when no text is provided"""
@@ -425,7 +426,7 @@ class handler(BaseHTTPRequestHandler):
                 'Content-Type': 'application/json'
             }
             
-            response = requests.post(url, json=payload, headers=headers, timeout=5)
+            response = requests.post(url, json=payload, headers=headers, timeout=2)
             response.raise_for_status()
             
             result = response.json()
