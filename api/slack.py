@@ -347,7 +347,7 @@ class handler(BaseHTTPRequestHandler):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"*입력:* {original_text[:1000]}\n\n---\n\n*출력:* {translated_text[:1000]}"
+                                "text": f"{original_text[:1000]}\n\n---\n\n{translated_text[:1000]}"
                             }
                         }
                     ]
