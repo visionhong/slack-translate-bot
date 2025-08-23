@@ -72,12 +72,18 @@ class SimpleTranslationService:
             logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
             
             response = self.client.chat.completions.create(
-                model=self.deployment_name,
                 messages=[
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
                 ],
                 max_completion_tokens=16384,
-                temperature=0
+                model=self.deployment_name
             )
             
             logger.info(f"Received response from Azure OpenAI: {response}")
