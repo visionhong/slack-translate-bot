@@ -1,25 +1,4 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/slack.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "api/health.py", 
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/slack/events",
-      "dest": "/api/slack"
-    },
-    {
-      "src": "/api/health",
-      "dest": "/api/health"
-    }
-  ],
   "functions": {
     "api/slack.py": {
       "maxDuration": 30
@@ -28,6 +7,16 @@
       "maxDuration": 10
     }
   },
+  "rewrites": [
+    {
+      "source": "/api/slack/events",
+      "destination": "/api/slack"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/health"
+    }
+  ],
   "env": {
     "SLACK_BOT_TOKEN": "@slack_bot_token",
     "SLACK_SIGNING_SECRET": "@slack_signing_secret",
