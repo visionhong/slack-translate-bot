@@ -20,6 +20,7 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 # Memory cache and request tracking
 translation_cache = {}
 active_requests = set()
+active_modals = {}  # Store view_id for active translation requests
 cache_lock = threading.Lock()
 
 class SimpleTranslationService:
@@ -247,10 +248,13 @@ class handler(BaseHTTPRequestHandler):
                             active_requests.add(request_id)
                             
                             if text.strip():
-                                # Show "processing" modal immediately
-                                processing_modal_success = self._show_processing_modal(trigger_id, text.strip())
+                                # Show "processing" modal immediately and get view_id
+                                view_id = self._show_processing_modal(trigger_id, text.strip())
                                 
-                                if processing_modal_success:
+                                if view_id:
+                                    # Store view_id for this request
+                                    active_modals[request_id] = view_id
+                                    
                                     # Send acknowledgment after modal is shown
                                     self.send_response(200)
                                     self.send_header('Content-type', 'text/plain')
@@ -269,11 +273,11 @@ class handler(BaseHTTPRequestHandler):
                                             
                                             if not translated_text or translated_text.strip() == "":
                                                 logger.error("Translation returned empty result")
-                                                self._update_translation_modal_with_error(trigger_id, "번역 결과가 비어있습니다.")
+                                                self._update_translation_modal_with_error(view_id, "번역 결과가 비어있습니다.")
                                                 return
                                             
-                                            # Update modal with translation results
-                                            update_success = self._update_translation_modal_with_results(trigger_id, text.strip(), translated_text, source_lang)
+                                            # Update modal with translation results using stored view_id
+                                            update_success = self._update_translation_modal_with_results(view_id, text.strip(), translated_text, source_lang)
                                             if not update_success:
                                                 logger.error("Failed to update modal with results")
                                             
@@ -281,10 +285,11 @@ class handler(BaseHTTPRequestHandler):
                                             logger.error(f"Translation processing error: {e}")
                                             logger.error(f"Error traceback: ", exc_info=True)
                                             # Update modal with error message
-                                            self._update_translation_modal_with_error(trigger_id, str(e))
+                                            self._update_translation_modal_with_error(view_id, str(e))
                                         finally:
-                                            # Remove from active requests
+                                            # Remove from active requests and modals
                                             active_requests.discard(request_id)
+                                            active_modals.pop(request_id, None)
                                     
                                     # Start translation in background thread
                                     thread = threading.Thread(target=process_translation)
@@ -489,20 +494,18 @@ class handler(BaseHTTPRequestHandler):
             if success:
                 # Store the view_id for later updates
                 view_id = result.get('view', {}).get('id')
-                if view_id:
-                    # Store in a simple way - you might want to use a proper storage in production
-                    self.current_view_id = view_id
                 logger.info(f"Successfully showed processing modal with view_id: {view_id}")
+                return view_id  # Return view_id instead of just success
             else:
                 logger.error(f"Failed to show processing modal: {result.get('error', 'unknown')}")
-            return success
+            return None
             
         except Exception as e:
             logger.error(f"Error showing processing modal: {e}")
-            return False
+            return None
     
-    def _update_translation_modal_with_results(self, trigger_id, original_text, translated_text, source_lang):
-        """Update modal with translation results using views.push to show results"""
+    def _update_translation_modal_with_results(self, view_id, original_text, translated_text, source_lang):
+        """Update existing modal with translation results using views.update"""
         try:
             # Split long text into multiple section blocks if needed
             def create_text_sections(text, max_chars=2800):
@@ -565,11 +568,12 @@ class handler(BaseHTTPRequestHandler):
                 ]
             })
             
-            modal_payload = {
-                "trigger_id": trigger_id,
+            # Use views.update with the stored view_id instead of views.push with trigger_id
+            update_payload = {
+                "view_id": view_id,
                 "view": {
                     "type": "modal",
-                    "callback_id": "translation_result_modal",
+                    "callback_id": "translation_result_modal", 
                     "title": {
                         "type": "plain_text",
                         "text": "번역 결과"
@@ -582,7 +586,8 @@ class handler(BaseHTTPRequestHandler):
                 }
             }
             
-            result = self._call_slack_api('views.push', modal_payload)
+            logger.info(f"Updating modal with view_id: {view_id}")
+            result = self._call_slack_api('views.update', update_payload)
             success = result and result.get('ok', False)
             if success:
                 logger.info("Successfully updated modal with translation results")
@@ -594,13 +599,14 @@ class handler(BaseHTTPRequestHandler):
             logger.error(f"Error updating translation modal with results: {e}")
             return False
     
-    def _update_translation_modal_with_error(self, trigger_id, error_message):
-        """Update modal with error message"""
+    def _update_translation_modal_with_error(self, view_id, error_message):
+        """Update modal with error message using views.update"""
         try:
-            modal_payload = {
-                "trigger_id": trigger_id,
+            update_payload = {
+                "view_id": view_id,
                 "view": {
                     "type": "modal",
+                    "callback_id": "translation_error_modal",
                     "title": {
                         "type": "plain_text",
                         "text": "번역 오류"
@@ -621,10 +627,13 @@ class handler(BaseHTTPRequestHandler):
                 }
             }
             
-            result = self._call_slack_api('views.push', modal_payload)
+            logger.info(f"Updating modal with error using view_id: {view_id}")
+            result = self._call_slack_api('views.update', update_payload)
             success = result and result.get('ok', False)
             if success:
                 logger.info("Successfully updated modal with error")
+            else:
+                logger.error(f"Failed to update modal with error: {result.get('error', 'unknown')}")
             return success
             
         except Exception as e:
