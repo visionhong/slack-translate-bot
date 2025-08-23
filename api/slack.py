@@ -67,8 +67,7 @@ class SimpleTranslationService:
                     {"role": "system", "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."},
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=1000,
-                temperature=0.1
+                max_completion_tokens=1000
             )
             
             translated_text = response.choices[0].message.content.strip()
