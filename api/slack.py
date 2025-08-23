@@ -65,19 +65,19 @@ class SimpleTranslationService:
         
         try:
             if source_lang == 'ko':
-                prompt = f"Translate the following Korean text to natural English:\n\n{text}"
+                prompt = f"Translate to English:\n{text}"
             else:
-                prompt = f"Translate the following English text to natural Korean:\n\n{text}"
+                prompt = f"Translate to Korean:\n{text}"
             
             logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
             
             response = self.client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[
-                    {"role": "system", "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."},
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=500
+                max_completion_tokens=100,
+                temperature=0
             )
             
             logger.info(f"Received response from Azure OpenAI: {response}")
