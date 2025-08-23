@@ -95,34 +95,23 @@ class SimpleTranslationService:
             
             logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
             
-            # Add timeout using signal (works on Unix-based systems like Vercel)
-            import signal
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Azure OpenAI request timed out after 30 seconds")
-            
-            # Set timeout signal
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(30)  # 30 second timeout
-            
-            try:
-                response = self.client.chat.completions.create(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    max_completion_tokens=16384,
-                    model=self.deployment_name
-                )
-                logger.info("Azure OpenAI request completed successfully")
-            finally:
-                signal.alarm(0)  # Cancel the alarm
+            # Use the Azure OpenAI client's built-in timeout instead of signal
+            response = self.client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_completion_tokens=16384,
+                model=self.deployment_name,
+                timeout=30  # 30 second timeout
+            )
+            logger.info("Azure OpenAI request completed successfully")
             
             translated_text = response.choices[0].message.content.strip()
             logger.info(f"Translation result extracted, length: {len(translated_text)}")
@@ -182,86 +171,7 @@ def send_delayed_response(response_url, message):
     except Exception as e:
         logger.error(f"Error sending delayed response: {e}")
 
-def send_translation_fallback_message(response_url, original_text, translated_text):
-    """Send translation result as fallback message when modal update fails"""
-    try:
-        # Create text sections for long content
-        def create_text_blocks(text, max_chars=2800):
-            if len(text) <= max_chars:
-                return [{
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"```{text}```"
-                    }
-                }]
-            
-            blocks = []
-            start = 0
-            while start < len(text):
-                end = min(start + max_chars, len(text))
-                if end < len(text):
-                    last_space = text.rfind(' ', start, end)
-                    last_newline = text.rfind('\n', start, end)
-                    break_point = max(last_space, last_newline)
-                    if break_point > start:
-                        end = break_point
-                
-                chunk = text[start:end]
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"```{chunk}```"
-                    }
-                })
-                start = end
-            
-            return blocks
-        
-        # Create blocks for response
-        blocks = []
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "🌐 *번역 완료* (모달 표시 실패로 메시지로 전송)"
-            }
-        })
-        blocks.extend(create_text_blocks(original_text))
-        blocks.append({"type": "divider"})
-        blocks.extend(create_text_blocks(translated_text))
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": "💡 텍스트를 선택하여 복사하세요."
-            }]
-        })
-        
-        fallback_message = {
-            "replace_original": True,
-            "response_type": "ephemeral",
-            "text": "🌐 번역 완료 (fallback)",
-            "blocks": blocks
-        }
-        
-        send_delayed_response(response_url, fallback_message)
-        
-    except Exception as e:
-        logger.error(f"Error sending translation fallback message: {e}")
-
-def send_error_fallback_message(response_url, error_message):
-    """Send error message as fallback when modal update fails"""
-    try:
-        error_response = {
-            "replace_original": True,
-            "response_type": "ephemeral",
-            "text": f"❌ 번역 오류: {error_message}"
-        }
-        send_delayed_response(response_url, error_response)
-    except Exception as e:
-        logger.error(f"Error sending error fallback message: {e}")
+# Removed fallback message functions - modal-only approach
 
 # Global translation service
 translation_service = SimpleTranslationService()
@@ -351,177 +261,60 @@ class handler(BaseHTTPRequestHandler):
                             active_requests.add(request_id)
                             
                             if text.strip():
-                                # Show "processing" modal immediately and get view_id
-                                view_id = self._show_processing_modal(trigger_id, text.strip())
+                                # Send immediate acknowledgment
+                                self.send_response(200)
+                                self.send_header('Content-type', 'text/plain')
+                                self.end_headers()
+                                self.wfile.write(b'')
                                 
-                                if view_id:
-                                    # Store view_id for this request
-                                    active_modals[request_id] = view_id
-                                    
-                                    # Send acknowledgment after modal is shown
-                                    self.send_response(200)
-                                    self.send_header('Content-type', 'text/plain')
-                                    self.end_headers()
-                                    self.wfile.write(b'')
-                                    
-                                    # Process translation asynchronously and update modal
-                                    def process_translation():
-                                        try:
-                                            logger.info(f"=== Starting translation processing for request {request_id} ===")
-                                            source_lang = translation_service.detect_language(text)
-                                            logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
-                                            
-                                            logger.info(f"About to call translation service for request {request_id}")
-                                            translated_text = translation_service.translate(text.strip())
-                                            logger.info(f"Translation service returned for request {request_id}")
-                                            logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
-                                            logger.info(f"Translation result preview: {translated_text[:100]}...")
-                                            
-                                            if not translated_text or translated_text.strip() == "":
-                                                logger.error("Translation returned empty result")
-                                                self._update_translation_modal_with_error(view_id, "번역 결과가 비어있습니다.")
-                                                return
-                                            
-                                            # Update modal with translation results using stored view_id
-                                            update_success = self._update_translation_modal_with_results(view_id, text.strip(), translated_text, source_lang)
-                                            if not update_success:
-                                                logger.error("Modal update failed, sending fallback message")
-                                                # Fallback: Send translation result as a message
-                                                send_translation_fallback_message(response_url, text.strip(), translated_text)
-                                            
-                                        except Exception as e:
-                                            logger.error(f"Translation processing error: {e}")
-                                            logger.error(f"Error traceback: ", exc_info=True)
-                                            # Try to update modal with error message, if that fails, send message
-                                            error_update_success = self._update_translation_modal_with_error(view_id, str(e))
-                                            if not error_update_success:
-                                                logger.error("Error modal update also failed, sending fallback error message")
-                                                send_error_fallback_message(response_url, str(e))
-                                        finally:
-                                            # Remove from active requests and modals
-                                            active_requests.discard(request_id)
-                                            active_modals.pop(request_id, None)
-                                    
-                                    # Start translation in background thread
-                                    thread = threading.Thread(target=process_translation)
-                                    thread.daemon = True
-                                    thread.start()
-                                    return
-                                else:
-                                    # Fallback to original inline method if modal fails
-                                    self.send_response(200)
-                                    self.send_header('Content-type', 'application/json')
-                                    self.end_headers()
-                                    immediate_response = {
-                                        "response_type": "ephemeral",
-                                        "text": "🔄 번역 중입니다... 잠시만 기다려주세요."
-                                    }
-                                    self.wfile.write(json.dumps(immediate_response).encode())
-                                    
-                                    # Process translation asynchronously for inline response
-                                    def process_inline_translation():
-                                        try:
-                                            source_lang = translation_service.detect_language(text)
-                                            logger.info(f"Processing inline translation for request {request_id}")
-                                            
-                                            translated_text = translation_service.translate(text.strip())
-                                            logger.info(f"Inline translation completed for request {request_id}")
-                                            
-                                            # Create text sections for long content
-                                            def create_text_blocks(text, max_chars=2800):
-                                                if len(text) <= max_chars:
-                                                    return [{
-                                                        "type": "section",
-                                                        "text": {
-                                                            "type": "mrkdwn",
-                                                            "text": f"```{text}```"
-                                                        }
-                                                    }]
-                                                
-                                                blocks = []
-                                                start = 0
-                                                while start < len(text):
-                                                    end = min(start + max_chars, len(text))
-                                                    if end < len(text):
-                                                        last_space = text.rfind(' ', start, end)
-                                                        last_newline = text.rfind('\\n', start, end)
-                                                        break_point = max(last_space, last_newline)
-                                                        if break_point > start:
-                                                            end = break_point
-                                                    
-                                                    chunk = text[start:end]
-                                                    blocks.append({
-                                                        "type": "section",
-                                                        "text": {
-                                                            "type": "mrkdwn",
-                                                            "text": f"```{chunk}```"
-                                                        }
-                                                    })
-                                                    start = end
-                                                
-                                                return blocks
-                                            
-                                            # Create blocks for response
-                                            blocks = []
-                                            blocks.extend(create_text_blocks(text.strip()))
-                                            blocks.append({"type": "divider"})
-                                            blocks.extend(create_text_blocks(translated_text))
-                                            blocks.append({
-                                                "type": "context",
-                                                "elements": [{
-                                                    "type": "mrkdwn",
-                                                    "text": "💡 텍스트를 선택하여 복사하세요."
-                                                }]
-                                            })
-                                            
-                                            delayed_response = {
-                                                "replace_original": True,
-                                                "response_type": "ephemeral",
-                                                "text": "🌐 번역 완료",
-                                                "blocks": blocks
-                                            }
-                                            
-                                            if response_url:
-                                                send_delayed_response(response_url, delayed_response)
-                                            
-                                        except Exception as e:
-                                            logger.error(f"Inline translation processing error: {e}")
-                                            if response_url:
-                                                error_response = {
-                                                    "replace_original": True,
-                                                    "response_type": "ephemeral",
-                                                    "text": f"번역 오류: {str(e)}"
-                                                }
-                                                send_delayed_response(response_url, error_response)
-                                        finally:
-                                            # Remove from active requests
-                                            active_requests.discard(request_id)
-                                    
-                                    # Start inline translation in background thread
-                                    thread = threading.Thread(target=process_inline_translation)
-                                    thread.daemon = True
-                                    thread.start()
-                                    return
+                                # Process translation and show result modal directly
+                                def process_translation():
+                                    try:
+                                        logger.info(f"=== Starting direct translation processing for request {request_id} ===")
+                                        source_lang = translation_service.detect_language(text)
+                                        logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
+                                        
+                                        logger.info(f"About to call translation service for request {request_id}")
+                                        translated_text = translation_service.translate(text.strip())
+                                        logger.info(f"Translation service returned for request {request_id}")
+                                        logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
+                                        logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                        
+                                        if not translated_text or translated_text.strip() == "":
+                                            logger.error("Translation returned empty result")
+                                            translated_text = "번역 결과를 가져올 수 없습니다."
+                                        
+                                        # Show result modal directly with trigger_id (no processing modal)
+                                        modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
+                                        if not modal_success:
+                                            logger.error("Failed to show translation result modal")
+                                        else:
+                                            logger.info("Successfully showed translation result modal")
+                                        
+                                    except Exception as e:
+                                        logger.error(f"Translation processing error: {e}")
+                                        logger.error(f"Error traceback: ", exc_info=True)
+                                        # Show error modal
+                                        error_text = f"번역 오류: {str(e)}"
+                                        self._show_translation_modal(trigger_id, text.strip(), error_text, source_lang)
+                                    finally:
+                                        # Remove from active requests
+                                        active_requests.discard(request_id)
+                                
+                                # Start translation in background thread
+                                thread = threading.Thread(target=process_translation)
+                                thread.daemon = True
+                                thread.start()
                                 
                             else:
-                                # Try to show input modal for empty commands
+                                # Show input modal for empty commands - modal only, no chat messages
                                 modal_success = self._show_input_modal(trigger_id)
                                 
-                                if modal_success:
-                                    # Modal opened successfully - no Slack response needed
-                                    self.send_response(200)
-                                    self.send_header('Content-type', 'text/plain')
-                                    self.end_headers()
-                                    self.wfile.write(b'')
-                                else:
-                                    translation_response = {
-                                        "response_type": "ephemeral",
-                                        "text": "🌐 Please provide text to translate: `/translate your text here`"
-                                    }
-                                    self.send_response(200)
-                                    self.send_header('Content-type', 'application/json')
-                                    self.end_headers()
-                                    self.wfile.write(json.dumps(translation_response).encode())
+                                # Always respond with success, no chat messages
+                                self.send_response(200)
+                                self.send_header('Content-type', 'text/plain')
+                                self.end_headers()
+                                self.wfile.write(b'')
                                 
                                 # Remove from active requests
                                 active_requests.discard(request_id)
@@ -559,206 +352,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(error_response).encode())
     
     
-    def _show_processing_modal(self, trigger_id, original_text):
-        """Show modal with processing status and store view_id for later updates"""
-        try:
-            # Truncate text for initial display
-            display_text = original_text[:2800] + "..." if len(original_text) > 2800 else original_text
-            
-            modal_payload = {
-                "trigger_id": trigger_id,
-                "view": {
-                    "type": "modal",
-                    "callback_id": "translation_processing_modal",
-                    "title": {
-                        "type": "plain_text",
-                        "text": "번역 중..."
-                    },
-                    "close": {
-                        "type": "plain_text",
-                        "text": "닫기"
-                    },
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"```{display_text}```"
-                            }
-                        },
-                        {
-                            "type": "divider"
-                        },
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": "🔄 *번역 중입니다...*\\n잠시만 기다려주세요."
-                            }
-                        }
-                    ]
-                }
-            }
-            
-            result = self._call_slack_api('views.open', modal_payload)
-            success = result and result.get('ok', False)
-            if success:
-                # Store the view_id for later updates
-                view_id = result.get('view', {}).get('id')
-                logger.info(f"Successfully showed processing modal with view_id: {view_id}")
-                return view_id  # Return view_id instead of just success
-            else:
-                logger.error(f"Failed to show processing modal: {result.get('error', 'unknown')}")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error showing processing modal: {e}")
-            return None
-    
-    def _update_translation_modal_with_results(self, view_id, original_text, translated_text, source_lang):
-        """Update existing modal with translation results using views.update with fallback"""
-        try:
-            # Split long text into multiple section blocks if needed
-            def create_text_sections(text, max_chars=2800):
-                if len(text) <= max_chars:
-                    return [{
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"```{text}```"
-                        }
-                    }]
-                
-                sections = []
-                start = 0
-                while start < len(text):
-                    end = min(start + max_chars, len(text))
-                    # Try to break at word boundary if not at end
-                    if end < len(text):
-                        last_space = text.rfind(' ', start, end)
-                        last_newline = text.rfind('\n', start, end)
-                        break_point = max(last_space, last_newline)
-                        if break_point > start:
-                            end = break_point
-                    
-                    chunk = text[start:end]
-                    sections.append({
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"```{chunk}```"
-                        }
-                    })
-                    
-                    start = end
-                
-                return sections
-            
-            # Create blocks with sections for original and translated text
-            blocks = []
-            
-            # Add original text sections
-            blocks.extend(create_text_sections(original_text))
-            
-            # Add divider
-            blocks.append({
-                "type": "divider"
-            })
-            
-            # Add translated text sections
-            blocks.extend(create_text_sections(translated_text))
-            
-            # Add context help
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "💡 텍스트를 선택하여 복사하세요. 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
-                    }
-                ]
-            })
-            
-            # Try views.update first with the stored view_id
-            update_payload = {
-                "view_id": view_id,
-                "view": {
-                    "type": "modal",
-                    "callback_id": "translation_result_modal", 
-                    "title": {
-                        "type": "plain_text",
-                        "text": "번역 결과"
-                    },
-                    "close": {
-                        "type": "plain_text",
-                        "text": "닫기"
-                    },
-                    "blocks": blocks
-                }
-            }
-            
-            logger.info(f"Updating modal with view_id: {view_id}")
-            result = self._call_slack_api('views.update', update_payload)
-            success = result and result.get('ok', False)
-            
-            if success:
-                logger.info("Successfully updated modal with translation results")
-                return True
-            else:
-                error_code = result.get('error', 'unknown') if result else 'no_response'
-                logger.error(f"Failed to update modal with results: {error_code}")
-                
-                # If the modal update fails (common with view_id expiration), 
-                # the translation was successful but modal display failed
-                # In this case, we should notify the user that translation completed
-                # but could not be displayed in the modal
-                logger.info("Modal update failed, but translation was successful")
-                return False  # Indicate modal update failed, but don't treat as translation failure
-            
-        except Exception as e:
-            logger.error(f"Error updating translation modal with results: {e}")
-            return False
-    
-    def _update_translation_modal_with_error(self, view_id, error_message):
-        """Update modal with error message using views.update"""
-        try:
-            update_payload = {
-                "view_id": view_id,
-                "view": {
-                    "type": "modal",
-                    "callback_id": "translation_error_modal",
-                    "title": {
-                        "type": "plain_text",
-                        "text": "번역 오류"
-                    },
-                    "close": {
-                        "type": "plain_text",
-                        "text": "닫기"
-                    },
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"❌ **번역 오류**\\n{error_message}"
-                            }
-                        }
-                    ]
-                }
-            }
-            
-            logger.info(f"Updating modal with error using view_id: {view_id}")
-            result = self._call_slack_api('views.update', update_payload)
-            success = result and result.get('ok', False)
-            if success:
-                logger.info("Successfully updated modal with error")
-            else:
-                logger.error(f"Failed to update modal with error: {result.get('error', 'unknown')}")
-            return success
-            
-        except Exception as e:
-            logger.error(f"Error updating modal with error: {e}")
-            return False
+# Removed processing modal and update functions - direct result modal approach
     
     def _show_input_modal(self, trigger_id):
         """Show modal for text input when no text is provided"""
