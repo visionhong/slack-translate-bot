@@ -5,11 +5,22 @@ import logging
 import os
 import requests
 import time
+import threading
+import hashlib
 from openai import AzureOpenAI
 
-# Configure logging
+# Configure logging - reduce verbosity for better performance
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Set Azure OpenAI and httpx to WARNING level to reduce noise
+logging.getLogger('openai').setLevel(logging.WARNING)
+logging.getLogger('httpx').setLevel(logging.WARNING)
+
+# Memory cache and request tracking
+translation_cache = {}
+active_requests = set()
+cache_lock = threading.Lock()
 
 class SimpleTranslationService:
     def __init__(self):
@@ -42,11 +53,23 @@ class SimpleTranslationService:
         return 'en'
     
     def translate(self, text: str) -> str:
-        logger.info(f"SimpleTranslationService.translate called with text: {text[:100]}...")
+        logger.debug(f"SimpleTranslationService.translate called with text: {text[:100]}...")
         
         if not text.strip():
-            logger.info("Empty text provided, returning as-is")
+            logger.debug("Empty text provided, returning as-is")
             return text
+        
+        # Check cache first
+        cache_key = get_cache_key(text)
+        with cache_lock:
+            if cache_key in translation_cache:
+                cached_result = translation_cache[cache_key]
+                if time.time() - cached_result['timestamp'] < 3600:  # 1 hour cache
+                    logger.info("Using cached translation result")
+                    return cached_result['translation']
+                else:
+                    # Remove expired cache
+                    del translation_cache[cache_key]
             
         # If service not available, provide mock translation for testing
         if not self.available:
@@ -57,11 +80,11 @@ class SimpleTranslationService:
             else:
                 return f"[Mock] 안녕하세요 (번역: {text})"
         
-        logger.info(f"Azure OpenAI client available, endpoint: {self.endpoint}")
-        logger.info(f"Using deployment: {self.deployment_name}")
+        logger.debug(f"Azure OpenAI client available, endpoint: {self.endpoint}")
+        logger.debug(f"Using deployment: {self.deployment_name}")
         
         source_lang = self.detect_language(text)
-        logger.info(f"Detected source language: {source_lang}")
+        logger.debug(f"Detected source language: {source_lang}")
         
         try:
             if source_lang == 'ko':
@@ -69,7 +92,7 @@ class SimpleTranslationService:
             else:
                 prompt = f"Translate to Korean:\n{text}"
             
-            logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
+            logger.debug(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
             
             response = self.client.chat.completions.create(
                 messages=[
@@ -86,22 +109,55 @@ class SimpleTranslationService:
                 model=self.deployment_name
             )
             
-            logger.info(f"Received response from Azure OpenAI: {response}")
-            
             translated_text = response.choices[0].message.content.strip()
-            logger.info(f"Extracted translated text: {translated_text}")
+            
+            # Cache the result
+            with cache_lock:
+                translation_cache[cache_key] = {
+                    'translation': translated_text,
+                    'timestamp': time.time()
+                }
+                # Keep only last 100 translations in cache
+                if len(translation_cache) > 100:
+                    oldest_key = min(translation_cache.keys(), key=lambda k: translation_cache[k]['timestamp'])
+                    del translation_cache[oldest_key]
+            
             logger.info(f"Successfully translated text from {source_lang}")
             return translated_text
             
         except Exception as e:
             logger.error(f"Azure OpenAI translation error: {e}")
             logger.error(f"Error type: {type(e).__name__}")
-            logger.error(f"Error details: {str(e)}")
             # Fallback to mock translation
             if source_lang == 'ko':
                 return f"[Fallback] Hello (translation of: {text})"
             else:
                 return f"[Fallback] 안녕하세요 (번역: {text})"
+
+def get_request_id(user_id, text):
+    """Generate unique request ID"""
+    content = f"{user_id}:{text}"
+    return hashlib.md5(content.encode()).hexdigest()[:12]
+
+def get_cache_key(text):
+    """Generate cache key for translation"""
+    return hashlib.md5(text.encode()).hexdigest()
+
+def send_delayed_response(response_url, message):
+    """Send delayed response to Slack"""
+    try:
+        response = requests.post(
+            response_url,
+            json=message,
+            headers={'Content-Type': 'application/json'},
+            timeout=5
+        )
+        if response.status_code == 200:
+            logger.info("Successfully sent delayed response")
+        else:
+            logger.error(f"Failed to send delayed response: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error sending delayed response: {e}")
 
 # Global translation service
 translation_service = SimpleTranslationService()
@@ -173,77 +229,126 @@ class handler(BaseHTTPRequestHandler):
                         if command == '/translate':
                             trigger_id = data.get('trigger_id')
                             user_id = data.get('user_id')
+                            response_url = data.get('response_url')
+                            
+                            # Generate request ID for duplicate prevention
+                            request_id = get_request_id(user_id, text)
+                            
+                            # Check for duplicate requests
+                            if request_id in active_requests:
+                                logger.info(f"Duplicate request detected: {request_id}")
+                                self.send_response(200)
+                                self.send_header('Content-type', 'text/plain')
+                                self.end_headers()
+                                self.wfile.write(b'')
+                                return
+                            
+                            # Add to active requests
+                            active_requests.add(request_id)
                             
                             if text.strip():
-                                # Translate immediately and show modal (must be within 3 seconds)
-                                try:
-                                    source_lang = translation_service.detect_language(text)
-                                    logger.info(f"Detected language: {source_lang} for text: {text[:50]}...")
-                                    
-                                    translated_text = translation_service.translate(text.strip())
-                                    logger.info(f"Translation result: {translated_text[:100]}...")
-                                    logger.info(f"Translation result length: {len(translated_text)}")
-                                    
-                                    # Try to show modal with results
-                                    modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
-                                    
-                                    if modal_success:
-                                        # Modal opened successfully - no Slack response needed
-                                        self.send_response(200)
-                                        self.send_header('Content-type', 'text/plain')
-                                        self.end_headers()
-                                        self.wfile.write(b'')
-                                        return
-                                    else:
-                                        # Fallback: show inline response
+                                # Send immediate acknowledgment
+                                self.send_response(200)
+                                self.send_header('Content-type', 'application/json')
+                                self.end_headers()
+                                immediate_response = {
+                                    "response_type": "ephemeral",
+                                    "text": "🔄 번역 중입니다... 잠시만 기다려주세요."
+                                }
+                                self.wfile.write(json.dumps(immediate_response).encode())
+                                
+                                # Process translation asynchronously
+                                def process_translation():
+                                    try:
+                                        source_lang = translation_service.detect_language(text)
+                                        logger.info(f"Processing translation for request {request_id}")
                                         
-                                        if source_lang == 'ko':
-                                            original_label = "한국어"
-                                            translated_label = "English"
-                                        else:
-                                            original_label = "English"
-                                            translated_label = "한국어"
+                                        translated_text = translation_service.translate(text.strip())
+                                        logger.info(f"Translation completed for request {request_id}")
                                         
-                                        translation_response = {
-                                            "response_type": "ephemeral",
-                                            "text": "🌐 Translation Result",
-                                            "blocks": [
-                                                {
-                                                    "type": "section",
-                                                    "text": {
-                                                        "type": "mrkdwn",
-                                                        "text": f"*{original_label}*\n{text.strip()}"
-                                                    }
-                                                },
-                                                {
-                                                    "type": "divider"
-                                                },
-                                                {
-                                                    "type": "section",
-                                                    "text": {
-                                                        "type": "mrkdwn",
-                                                        "text": f"*{translated_label}*\n{translated_text}"
-                                                    }
-                                                },
-                                                {
-                                                    "type": "context",
-                                                    "elements": [
-                                                        {
+                                        # Try to show modal first
+                                        modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
+                                        
+                                        if not modal_success:
+                                            # Fallback: send inline response via response_url
+                                            logger.info("Modal failed, sending inline response")
+                                            
+                                            # Create text sections for long content
+                                            def create_text_blocks(text, max_chars=2800):
+                                                if len(text) <= max_chars:
+                                                    return [{
+                                                        "type": "section",
+                                                        "text": {
                                                             "type": "mrkdwn",
-                                                            "text": "💡 Copy the text above to use it!"
+                                                            "text": f"```{text}```"
                                                         }
-                                                    ]
-                                                }
-                                            ]
-                                        }
+                                                    }]
+                                                
+                                                blocks = []
+                                                start = 0
+                                                while start < len(text):
+                                                    end = min(start + max_chars, len(text))
+                                                    if end < len(text):
+                                                        last_space = text.rfind(' ', start, end)
+                                                        last_newline = text.rfind('\\n', start, end)
+                                                        break_point = max(last_space, last_newline)
+                                                        if break_point > start:
+                                                            end = break_point
+                                                    
+                                                    chunk = text[start:end]
+                                                    blocks.append({
+                                                        "type": "section",
+                                                        "text": {
+                                                            "type": "mrkdwn",
+                                                            "text": f"```{chunk}```"
+                                                        }
+                                                    })
+                                                    start = end
+                                                
+                                                return blocks
+                                            
+                                            # Create blocks for response
+                                            blocks = []
+                                            blocks.extend(create_text_blocks(text.strip()))
+                                            blocks.append({"type": "divider"})
+                                            blocks.extend(create_text_blocks(translated_text))
+                                            blocks.append({
+                                                "type": "context",
+                                                "elements": [{
+                                                    "type": "mrkdwn",
+                                                    "text": "💡 텍스트를 선택하여 복사하세요."
+                                                }]
+                                            })
+                                            
+                                            delayed_response = {
+                                                "replace_original": True,
+                                                "response_type": "ephemeral",
+                                                "text": "🌐 번역 완료",
+                                                "blocks": blocks
+                                            }
+                                            
+                                            if response_url:
+                                                send_delayed_response(response_url, delayed_response)
                                         
-                                except Exception as e:
-                                    logger.error(f"Translation failed: {e}")
-                                    translation_response = {
-                                        "response_type": "ephemeral",
-                                        "text": f"Translation error: {str(e)}"
-                                    }
-                                    
+                                    except Exception as e:
+                                        logger.error(f"Translation processing error: {e}")
+                                        if response_url:
+                                            error_response = {
+                                                "replace_original": True,
+                                                "response_type": "ephemeral",
+                                                "text": f"번역 오류: {str(e)}"
+                                            }
+                                            send_delayed_response(response_url, error_response)
+                                    finally:
+                                        # Remove from active requests
+                                        active_requests.discard(request_id)
+                                
+                                # Start translation in background thread
+                                thread = threading.Thread(target=process_translation)
+                                thread.daemon = True
+                                thread.start()
+                                return
+                                
                             else:
                                 # Try to show input modal for empty commands
                                 modal_success = self._show_input_modal(trigger_id)
@@ -254,18 +359,19 @@ class handler(BaseHTTPRequestHandler):
                                     self.send_header('Content-type', 'text/plain')
                                     self.end_headers()
                                     self.wfile.write(b'')
-                                    return
                                 else:
                                     translation_response = {
                                         "response_type": "ephemeral",
                                         "text": "🌐 Please provide text to translate: `/translate your text here`"
                                     }
-                            
-                            self.send_response(200)
-                            self.send_header('Content-type', 'application/json')
-                            self.end_headers()
-                            self.wfile.write(json.dumps(translation_response).encode())
-                            return
+                                    self.send_response(200)
+                                    self.send_header('Content-type', 'application/json')
+                                    self.end_headers()
+                                    self.wfile.write(json.dumps(translation_response).encode())
+                                
+                                # Remove from active requests
+                                active_requests.discard(request_id)
+                                return
                             
                 except Exception as e:
                     logger.warning(f"Failed to parse form-encoded data: {e}")
