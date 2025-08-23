@@ -95,9 +95,9 @@ class SimpleTranslationService:
             
             logger.info(f"Sending request to Azure OpenAI...")
             logger.info(f"Prompt: {prompt[:100]}...")
-            logger.info(f"Model: {self.deployment_name}, Timeout: 3s")
+            logger.info(f"Model: {self.deployment_name}, Timeout: 10s")
             
-            # Use the Azure OpenAI client's built-in timeout
+            # Add timeout to prevent hanging
             logger.info("Creating Azure OpenAI chat completion...")
             response = self.client.chat.completions.create(
                 messages=[
@@ -112,6 +112,7 @@ class SimpleTranslationService:
                 ],
                 max_completion_tokens=16384,
                 model=self.deployment_name,
+                timeout=10  # 10 second timeout
             )
             logger.info("Azure OpenAI response received successfully!")
             
