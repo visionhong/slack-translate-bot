@@ -15,7 +15,7 @@ class SimpleTranslationService:
         try:
             self.api_key = os.getenv('AZURE_OPENAI_API_KEY')
             self.endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-            self.api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-01')
+            self.api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-10-21')
             self.deployment_name = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
             
             if self.api_key and self.endpoint:
