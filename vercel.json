@@ -6,15 +6,5 @@
     "api/health.py": {
       "maxDuration": 10
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/slack/events",
-      "destination": "/api/slack"
-    },
-    {
-      "source": "/api/health",
-      "destination": "/api/health"
-    }
-  ]
+  }
 }
