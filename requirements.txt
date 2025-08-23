@@ -1,2 +1,7 @@
-# Basic requirements for Vercel deployment
+# Slack Bot dependencies
+slack-bolt==1.18.0
+python-dotenv==1.0.0
+openai==1.3.7
+
+# Basic HTTP requirements
 requests==2.31.0

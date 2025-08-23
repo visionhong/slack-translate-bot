@@ -17,31 +17,201 @@ stats: Dict[str, Any] = {
 }
 
 
-async def handle_translate_command(ack: Ack, respond: Respond, command: dict):
+async def handle_translate_command(ack: Ack, client, command: dict):
     await ack()
     
     text = command.get('text', '').strip()
     user_id = command.get('user_id')
+    trigger_id = command.get('trigger_id')
     
     if not text:
-        await respond("Please provide text to translate. Usage: `/translate [text]`")
+        # Show modal for text input if no text provided
+        await show_translation_input_modal(client, trigger_id)
         return
     
+    # Show translation result modal directly
+    await show_translation_result_modal(client, trigger_id, text, user_id)
+
+
+async def show_translation_input_modal(client, trigger_id):
+    """Show modal for text input when no text is provided"""
+    try:
+        await client.views_open(
+            trigger_id=trigger_id,
+            view={
+                "type": "modal",
+                "callback_id": "translation_input_modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "번역하기"
+                },
+                "submit": {
+                    "type": "plain_text",
+                    "text": "번역"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "취소"
+                },
+                "blocks": [
+                    {
+                        "type": "input",
+                        "block_id": "text_input_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "text_input",
+                            "multiline": True,
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "번역할 텍스트를 입력하세요..."
+                            }
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "텍스트"
+                        }
+                    }
+                ]
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error showing input modal: {e}")
+
+
+async def show_translation_result_modal(client, trigger_id, original_text, user_id):
+    """Show modal with original text and translation result"""
     try:
         # Check cache first
-        cache_key = f"translate:{hash(text)}"
+        cache_key = f"translate:{hash(original_text)}"
         cached_result = await cache.get(cache_key)
         
         if cached_result:
             logger.info(f"Using cached translation for user {user_id}")
-            await respond(f"🌐 {cached_result}")
+            translated_text = cached_result
+        else:
+            # Translate
+            translated_text = await translation_service.translate(original_text)
+            # Cache result
+            await cache.set(cache_key, translated_text, ttl=3600)
+            
+            # Update statistics
+            stats['total_translations'] += 1
+            if user_id not in stats['user_translations']:
+                stats['user_translations'][user_id] = 0
+            stats['user_translations'][user_id] += 1
+        
+        # Detect source language for proper labeling
+        source_lang = translation_service.detect_language(original_text)
+        if source_lang == 'ko':
+            original_label = "한국어"
+            translated_label = "English"
+        else:
+            original_label = "English"
+            translated_label = "한국어"
+        
+        await client.views_open(
+            trigger_id=trigger_id,
+            view={
+                "type": "modal",
+                "callback_id": "translation_result_modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "번역 결과"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "닫기"
+                },
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{original_label}*"
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "original_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "original_text",
+                            "multiline": True,
+                            "initial_value": original_text
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "원문"
+                        }
+                    },
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{translated_label}*"
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "translated_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "translated_text",
+                            "multiline": True,
+                            "initial_value": translated_text
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "번역문"
+                        }
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요!"
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+        
+        logger.info(f"Successfully showed translation modal for user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Translation modal error: {e}")
+
+
+async def handle_translation_input_modal(ack: Ack, body: dict, client):
+    """Handle translation input modal submission"""
+    await ack()
+    
+    try:
+        # Extract text from modal
+        text_input = body['view']['state']['values']['text_input_block']['text_input']['value']
+        user_id = body['user']['id']
+        
+        if not text_input or not text_input.strip():
             return
         
-        # Translate
-        translated_text = await translation_service.translate(text)
+        # Show result modal
+        # Since we can't directly open another modal, we need to update the current one
+        await show_translation_result_update(client, body['view']['id'], text_input.strip(), user_id)
         
-        # Cache result
-        await cache.set(cache_key, translated_text, ttl=3600)
+    except Exception as e:
+        logger.error(f"Translation input modal error: {e}")
+
+
+async def show_translation_result_update(client, view_id, original_text, user_id):
+    """Update modal to show translation result"""
+    try:
+        # Translate
+        translated_text = await translation_service.translate(original_text)
         
         # Update statistics
         stats['total_translations'] += 1
@@ -49,13 +219,89 @@ async def handle_translate_command(ack: Ack, respond: Respond, command: dict):
             stats['user_translations'][user_id] = 0
         stats['user_translations'][user_id] += 1
         
-        # Respond
-        await respond(f"🌐 {translated_text}")
-        logger.info(f"Successfully translated text for user {user_id}")
+        # Detect source language
+        source_lang = translation_service.detect_language(original_text)
+        if source_lang == 'ko':
+            original_label = "한국어"
+            translated_label = "English"
+        else:
+            original_label = "English"
+            translated_label = "한국어"
+        
+        await client.views_update(
+            view_id=view_id,
+            view={
+                "type": "modal",
+                "callback_id": "translation_result_modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "번역 결과"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "닫기"
+                },
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{original_label}*"
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "original_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "original_text",
+                            "multiline": True,
+                            "initial_value": original_text
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "원문"
+                        }
+                    },
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{translated_label}*"
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "translated_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "translated_text",
+                            "multiline": True,
+                            "initial_value": translated_text
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "번역문"
+                        }
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요!"
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
         
     except Exception as e:
-        logger.error(f"Translation command error: {e}")
-        await respond("Sorry, translation failed. Please try again.")
+        logger.error(f"Translation result update error: {e}")
 
 
 async def handle_help_command(ack: Ack, respond: Respond, command: dict):
