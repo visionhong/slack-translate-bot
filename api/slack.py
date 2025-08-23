@@ -334,7 +334,6 @@ class handler(BaseHTTPRequestHandler):
                 "trigger_id": trigger_id,
                 "view": {
                     "type": "modal",
-                    "callback_id": "translation_result_modal",
                     "title": {
                         "type": "plain_text",
                         "text": "번역 결과"
@@ -348,41 +347,8 @@ class handler(BaseHTTPRequestHandler):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"*{original_label}*"
+                                "text": f"*입력:* {original_text[:1000]}\n\n---\n\n*출력:* {translated_text[:1000]}"
                             }
-                        },
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn", 
-                                "text": f"{original_text[:2000]}"
-                            }
-                        },
-                        {
-                            "type": "divider"
-                        },
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"*{translated_label}*"
-                            }
-                        },
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"{translated_text[:2000]}"
-                            }
-                        },
-                        {
-                            "type": "context",
-                            "elements": [
-                                {
-                                    "type": "mrkdwn",
-                                    "text": "💡 텍스트를 선택해서 복사하세요!"
-                                }
-                            ]
                         }
                     ]
                 }
