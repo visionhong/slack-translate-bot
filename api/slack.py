@@ -59,17 +59,17 @@ class SimpleTranslationService:
             logger.debug("Empty text provided, returning as-is")
             return text
         
-        # Check cache first
-        cache_key = get_cache_key(text)
-        with cache_lock:
-            if cache_key in translation_cache:
-                cached_result = translation_cache[cache_key]
-                if time.time() - cached_result['timestamp'] < 3600:  # 1 hour cache
-                    logger.info("Using cached translation result")
-                    return cached_result['translation']
-                else:
-                    # Remove expired cache
-                    del translation_cache[cache_key]
+        # Disable cache for debugging
+        # cache_key = get_cache_key(text)
+        # with cache_lock:
+        #     if cache_key in translation_cache:
+        #         cached_result = translation_cache[cache_key]
+        #         if time.time() - cached_result['timestamp'] < 3600:  # 1 hour cache
+        #             logger.info("Using cached translation result")
+        #             return cached_result['translation']
+        #         else:
+        #             # Remove expired cache
+        #             del translation_cache[cache_key]
             
         # If service not available, provide mock translation for testing
         if not self.available:
@@ -111,16 +111,16 @@ class SimpleTranslationService:
             
             translated_text = response.choices[0].message.content.strip()
             
-            # Cache the result
-            with cache_lock:
-                translation_cache[cache_key] = {
-                    'translation': translated_text,
-                    'timestamp': time.time()
-                }
-                # Keep only last 100 translations in cache
-                if len(translation_cache) > 100:
-                    oldest_key = min(translation_cache.keys(), key=lambda k: translation_cache[k]['timestamp'])
-                    del translation_cache[oldest_key]
+            # Disable caching for debugging
+            # with cache_lock:
+            #     translation_cache[cache_key] = {
+            #         'translation': translated_text,
+            #         'timestamp': time.time()
+            #     }
+            #     # Keep only last 100 translations in cache
+            #     if len(translation_cache) > 100:
+            #         oldest_key = min(translation_cache.keys(), key=lambda k: translation_cache[k]['timestamp'])
+            #         del translation_cache[oldest_key]
             
             logger.info(f"Successfully translated text from {source_lang}")
             return translated_text
@@ -261,16 +261,25 @@ class handler(BaseHTTPRequestHandler):
                                     def process_translation():
                                         try:
                                             source_lang = translation_service.detect_language(text)
-                                            logger.info(f"Processing translation for request {request_id}")
+                                            logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
                                             
                                             translated_text = translation_service.translate(text.strip())
-                                            logger.info(f"Translation completed for request {request_id}")
+                                            logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
+                                            logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                            
+                                            if not translated_text or translated_text.strip() == "":
+                                                logger.error("Translation returned empty result")
+                                                self._update_translation_modal_with_error(trigger_id, "번역 결과가 비어있습니다.")
+                                                return
                                             
                                             # Update modal with translation results
-                                            self._update_translation_modal_with_results(trigger_id, text.strip(), translated_text, source_lang)
+                                            update_success = self._update_translation_modal_with_results(trigger_id, text.strip(), translated_text, source_lang)
+                                            if not update_success:
+                                                logger.error("Failed to update modal with results")
                                             
                                         except Exception as e:
                                             logger.error(f"Translation processing error: {e}")
+                                            logger.error(f"Error traceback: ", exc_info=True)
                                             # Update modal with error message
                                             self._update_translation_modal_with_error(trigger_id, str(e))
                                         finally:
