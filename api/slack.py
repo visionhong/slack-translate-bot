@@ -53,42 +53,36 @@ class handler(BaseHTTPRequestHandler):
             # Process with Slack Bolt if available
             if slack_app:
                 try:
-                    # Use proper Slack Bolt request handling
-                    from slack_bolt.request.async_request import AsyncBoltRequest
-                    from slack_bolt.response import BoltResponse
+                    # Use Slack Bolt's built-in adapter for serverless
+                    from slack_bolt.adapter.aws_lambda import SlackRequestHandler
                     
-                    # Convert to Slack request format
-                    bolt_request = AsyncBoltRequest(
-                        body=post_data,
-                        headers=dict(self.headers)
-                    )
+                    # Create handler for serverless environment
+                    handler = SlackRequestHandler(slack_app)
                     
-                    # Process with event loop
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                    # Convert to Lambda-style event format for Slack Bolt
+                    event = {
+                        "httpMethod": "POST",
+                        "headers": dict(self.headers),
+                        "body": post_data,
+                        "isBase64Encoded": False
+                    }
                     
-                    # Handle the request through Slack Bolt
-                    async def process_slack_request():
-                        try:
-                            response = await slack_app.async_process(bolt_request)
-                            return response
-                        except Exception as e:
-                            logger.error(f"Slack Bolt processing error: {e}")
-                            return BoltResponse(status=200, body="OK")
-                    
-                    # Run the async processing
-                    response = loop.run_until_complete(process_slack_request())
-                    loop.close()
+                    # Process with Slack Bolt handler
+                    lambda_response = handler.handle(event, None)
                     
                     # Send response
-                    self.send_response(response.status)
-                    for key, value in response.headers.items():
+                    status_code = lambda_response.get("statusCode", 200)
+                    headers = lambda_response.get("headers", {})
+                    body = lambda_response.get("body", "OK")
+                    
+                    self.send_response(status_code)
+                    for key, value in headers.items():
                         self.send_header(key, value)
+                    self.send_header('Content-Type', 'application/json')
                     self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     
-                    response_body = response.body if response.body else "OK"
-                    self.wfile.write(response_body.encode())
+                    self.wfile.write(body.encode())
                     
                     # Log event type if available
                     if data:

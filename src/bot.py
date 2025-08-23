@@ -1,5 +1,5 @@
 import logging
-from slack_bolt.async_app import AsyncApp
+from slack_bolt import App
 
 from .config import settings
 from .handlers.command import handle_translate_command, handle_help_command, handle_stats_command, handle_translation_input_modal
@@ -8,11 +8,12 @@ from .handlers.events import handle_app_mention, handle_direct_message, handle_r
 logger = logging.getLogger(__name__)
 
 
-def create_slack_app() -> AsyncApp:
+def create_slack_app() -> App:
     """Create and configure Slack app"""
-    app = AsyncApp(
+    app = App(
         token=settings.slack.bot_token,
-        signing_secret=settings.slack.signing_secret
+        signing_secret=settings.slack.signing_secret,
+        process_before_response=True
     )
     
     # Register slash commands

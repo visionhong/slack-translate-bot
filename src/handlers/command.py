@@ -1,7 +1,7 @@
 import logging
 import time
+import asyncio
 from typing import Dict, Any
-from slack_bolt.async_app import AsyncApp
 from slack_bolt import Ack, Respond
 
 from ..services.translation import translation_service
@@ -17,8 +17,8 @@ stats: Dict[str, Any] = {
 }
 
 
-async def handle_translate_command(ack: Ack, client, command: dict):
-    await ack()
+def handle_translate_command(ack: Ack, client, command: dict):
+    ack()
     
     text = command.get('text', '').strip()
     user_id = command.get('user_id')
@@ -26,11 +26,11 @@ async def handle_translate_command(ack: Ack, client, command: dict):
     
     if not text:
         # Show modal for text input if no text provided
-        await show_translation_input_modal(client, trigger_id)
+        asyncio.run(show_translation_input_modal(client, trigger_id))
         return
     
     # Show translation result modal directly
-    await show_translation_result_modal(client, trigger_id, text, user_id)
+    asyncio.run(show_translation_result_modal(client, trigger_id, text, user_id))
 
 
 async def show_translation_input_modal(client, trigger_id):
@@ -187,9 +187,9 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
         logger.error(f"Translation modal error: {e}")
 
 
-async def handle_translation_input_modal(ack: Ack, body: dict, client):
+def handle_translation_input_modal(ack: Ack, body: dict, client):
     """Handle translation input modal submission"""
-    await ack()
+    ack()
     
     try:
         # Extract text from modal
@@ -201,7 +201,7 @@ async def handle_translation_input_modal(ack: Ack, body: dict, client):
         
         # Show result modal
         # Since we can't directly open another modal, we need to update the current one
-        await show_translation_result_update(client, body['view']['id'], text_input.strip(), user_id)
+        asyncio.run(show_translation_result_update(client, body['view']['id'], text_input.strip(), user_id))
         
     except Exception as e:
         logger.error(f"Translation input modal error: {e}")
@@ -304,8 +304,8 @@ async def show_translation_result_update(client, view_id, original_text, user_id
         logger.error(f"Translation result update error: {e}")
 
 
-async def handle_help_command(ack: Ack, respond: Respond, command: dict):
-    await ack()
+def handle_help_command(ack: Ack, respond: Respond, command: dict):
+    ack()
     
     help_text = """
 🌐 **Translation Bot Help**
@@ -330,11 +330,11 @@ async def handle_help_command(ack: Ack, respond: Respond, command: dict):
 • `/translate Hello world!` → 안녕하세요 세계!
     """
     
-    await respond(help_text)
+    respond(help_text)
 
 
-async def handle_stats_command(ack: Ack, respond: Respond, command: dict):
-    await ack()
+def handle_stats_command(ack: Ack, respond: Respond, command: dict):
+    ack()
     
     user_id = command.get('user_id')
     uptime = int(time.time() - stats['start_time'])
@@ -351,4 +351,4 @@ async def handle_stats_command(ack: Ack, respond: Respond, command: dict):
 *Statistics reset on bot restart*
     """
     
-    await respond(stats_text)
+    respond(stats_text)
