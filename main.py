@@ -146,29 +146,84 @@ def get_request_id(user_id: str, text: str) -> str:
     content = f"{user_id}:{text}"
     return hashlib.md5(content.encode()).hexdigest()[:12]
 
-async def send_delayed_response(response_url: str, message: dict):
-    """지연 응답 전송"""
+async def open_translation_modal(trigger_id: str, text: str, translated_text: str):
+    """번역 결과를 모달로 표시"""
     try:
-        logger.info(f"📤 Sending delayed response to: {response_url[:50]}...")
+        bot_token = os.getenv('SLACK_BOT_TOKEN')
+        if not bot_token:
+            logger.error("❌ SLACK_BOT_TOKEN not found")
+            return
+        
+        # 원문과 번역문을 블록으로 구성
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "🌐 *번역 완료*"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*원문:*\n```{text}```"
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*번역:*\n```{translated_text}```"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": "💡 텍스트를 선택하여 복사하세요."
+                }]
+            }
+        ]
+        
+        modal_payload = {
+            "trigger_id": trigger_id,
+            "view": {
+                "type": "modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "번역 결과"
+                },
+                "blocks": blocks
+            }
+        }
+        
+        logger.info("📤 Opening translation result modal...")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                response_url,
-                json=message,
-                headers={'Content-Type': 'application/json'},
+                "https://slack.com/api/views.open",
+                json=modal_payload,
+                headers={
+                    'Authorization': f'Bearer {bot_token}',
+                    'Content-Type': 'application/json'
+                },
                 timeout=10.0
             )
             
-            logger.info(f"Response status: {response.status_code}")
+            result = response.json()
+            logger.info(f"Modal response: {result}")
             
-            if response.status_code == 200:
-                logger.info("✅ Successfully sent delayed response")
+            if result.get('ok'):
+                logger.info("✅ Successfully opened translation modal")
             else:
-                logger.error(f"❌ Failed to send delayed response: {response.status_code}")
-                logger.error(f"Response: {response.text}")
+                logger.error(f"❌ Failed to open modal: {result.get('error')}")
                 
     except Exception as e:
-        logger.error(f"❌ Error sending delayed response: {e}")
+        logger.error(f"❌ Error opening translation modal: {e}")
 
 def create_text_blocks(text: str, max_chars: int = 2800) -> list:
     """긴 텍스트를 Slack 블록으로 분할"""
@@ -206,7 +261,7 @@ def create_text_blocks(text: str, max_chars: int = 2800) -> list:
 
 async def process_translation(
     text: str, 
-    response_url: str, 
+    trigger_id: str, 
     user_id: str, 
     request_id: str
 ):
@@ -217,52 +272,18 @@ async def process_translation(
         # 번역 수행
         translated_text = await translation_service.translate(text)
         
-        # 블록 생성
-        blocks = []
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "🌐 *번역 완료*"
-            }
-        })
-        
-        # 원문 블록
-        blocks.extend(create_text_blocks(text))
-        blocks.append({"type": "divider"})
-        
-        # 번역문 블록
-        blocks.extend(create_text_blocks(translated_text))
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": "💡 텍스트를 선택하여 복사하세요."
-            }]
-        })
-        
-        # 후속 메시지 전송
-        follow_up_response = {
-            "replace_original": True,
-            "response_type": "ephemeral",
-            "text": "🌐 번역 완료",
-            "blocks": blocks
-        }
-        
-        await send_delayed_response(response_url, follow_up_response)
+        # 모달로 결과 표시
+        await open_translation_modal(trigger_id, text, translated_text)
         logger.info(f"✅ Translation completed for request {request_id}")
         
     except Exception as e:
         logger.error(f"❌ Translation processing error: {e}")
         
-        # 에러 응답 전송
-        error_response = {
-            "replace_original": True,
-            "response_type": "ephemeral",
-            "text": f"❌ 번역 오류: {str(e)}"
-        }
-        
-        await send_delayed_response(response_url, error_response)
+        # 에러 모달 표시
+        try:
+            await open_translation_modal(trigger_id, text, f"번역 오류: {str(e)}")
+        except:
+            logger.error("Failed to show error modal")
         
     finally:
         # 활성 요청에서 제거
@@ -309,7 +330,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             command = form_data.get('command')
             text = form_data.get('text', '').strip()
             user_id = form_data.get('user_id')
-            response_url = form_data.get('response_url')
+            trigger_id = form_data.get('trigger_id')
             
             logger.info(f"📩 Received command: {command} with text: {text[:50]}...")
             
@@ -324,19 +345,14 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 active_requests.add(request_id)
                 
                 if text:
-                    # 즉시 응답
-                    immediate_response = {
-                        "response_type": "ephemeral",
-                        "text": "🔄 번역 중입니다... 잠시만 기다려주세요."
-                    }
-                    
                     # 백그라운드에서 번역 처리
                     background_tasks.add_task(
                         process_translation,
-                        text, response_url, user_id, request_id
+                        text, trigger_id, user_id, request_id
                     )
                     
-                    return JSONResponse(content=immediate_response)
+                    # 즉시 200 응답 (빈 응답)
+                    return JSONResponse(content="")
                     
                 else:
                     # 사용법 안내
