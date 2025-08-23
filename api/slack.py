@@ -261,93 +261,138 @@ class handler(BaseHTTPRequestHandler):
                             active_requests.add(request_id)
                             
                             if text.strip():
-                                # NEW APPROACH: Fast mock translation + immediate result modal
-                                logger.info(f"=== Using fast translation approach for request {request_id} ===")
+                                # NEW APPROACH: Immediate 200 OK + background translation + follow-up message
+                                logger.info(f"=== Using delayed response pattern for request {request_id} ===")
                                 
-                                try:
-                                    # Fast language detection
-                                    source_lang = translation_service.detect_language(text.strip())
-                                    logger.info(f"Detected language: {source_lang}")
-                                    
-                                    # Try Azure OpenAI with very short timeout, fallback to mock if fails
+                                # Send immediate acknowledgment to avoid 3-second timeout
+                                self.send_response(200)
+                                self.send_header('Content-type', 'application/json')
+                                self.end_headers()
+                                immediate_response = {
+                                    "response_type": "ephemeral", 
+                                    "text": "🔄 번역 중입니다... 잠시만 기다려주세요."
+                                }
+                                self.wfile.write(json.dumps(immediate_response).encode())
+                                
+                                # Process translation in background and send follow-up message
+                                def process_translation_and_respond():
                                     try:
-                                        logger.info(f"Attempting Azure OpenAI translation...")
-                                        translated_text = translation_service.translate(text.strip())
-                                        logger.info(f"Azure OpenAI success: {translated_text[:100]}")
-                                    except Exception as e:
-                                        logger.error(f"Azure OpenAI failed: {e}")
-                                        logger.info("Using intelligent fallback translation")
+                                        logger.info(f"=== Starting background translation for request {request_id} ===")
+                                        source_lang = translation_service.detect_language(text.strip())
+                                        logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
                                         
-                                        # Intelligent fallback based on common patterns
-                                        if source_lang == 'ko':
-                                            if '자장면' in text:
-                                                translated_text = "I ate jajangmyeon"
-                                            elif '안녕' in text:
-                                                translated_text = "Hello"
-                                            elif '테스트' in text:
-                                                translated_text = "Test"
-                                            elif '먹었어' in text:
-                                                translated_text = "I ate it"
-                                            elif '된느거야' in text:
-                                                translated_text = "Is it working?"
-                                            elif '됐어' in text:
-                                                translated_text = "It's done/okay"
-                                            elif '좋아' in text:
-                                                translated_text = "Good/Like it"
-                                            else:
-                                                translated_text = f"Translation service unavailable. Original text: {text.strip()}"
+                                        # Try Azure OpenAI translation
+                                        translated_text = translation_service.translate(text.strip())
+                                        logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
+                                        logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                        
+                                        if not translated_text or translated_text.strip() == "":
+                                            logger.error("Translation returned empty result")
+                                            translated_text = "번역 결과를 가져올 수 없습니다."
+                                        
+                                        # Create blocks for long content
+                                        def create_text_blocks(text, max_chars=2800):
+                                            if len(text) <= max_chars:
+                                                return [{
+                                                    "type": "section",
+                                                    "text": {
+                                                        "type": "mrkdwn",
+                                                        "text": f"```{text}```"
+                                                    }
+                                                }]
+                                            
+                                            blocks = []
+                                            start = 0
+                                            while start < len(text):
+                                                end = min(start + max_chars, len(text))
+                                                if end < len(text):
+                                                    last_space = text.rfind(' ', start, end)
+                                                    last_newline = text.rfind('\n', start, end)
+                                                    break_point = max(last_space, last_newline)
+                                                    if break_point > start:
+                                                        end = break_point
+                                                
+                                                chunk = text[start:end]
+                                                blocks.append({
+                                                    "type": "section",
+                                                    "text": {
+                                                        "type": "mrkdwn",
+                                                        "text": f"```{chunk}```"
+                                                    }
+                                                })
+                                                start = end
+                                            
+                                            return blocks
+                                        
+                                        # Create response blocks
+                                        blocks = []
+                                        blocks.append({
+                                            "type": "section",
+                                            "text": {
+                                                "type": "mrkdwn",
+                                                "text": "🌐 *번역 완료*"
+                                            }
+                                        })
+                                        blocks.extend(create_text_blocks(text.strip()))
+                                        blocks.append({"type": "divider"})
+                                        blocks.extend(create_text_blocks(translated_text))
+                                        blocks.append({
+                                            "type": "context",
+                                            "elements": [{
+                                                "type": "mrkdwn",
+                                                "text": "💡 텍스트를 선택하여 복사하세요."
+                                            }]
+                                        })
+                                        
+                                        # Send follow-up message with translation result
+                                        follow_up_response = {
+                                            "replace_original": True,
+                                            "response_type": "ephemeral",
+                                            "text": "🌐 번역 완료",
+                                            "blocks": blocks
+                                        }
+                                        
+                                        if response_url:
+                                            send_delayed_response(response_url, follow_up_response)
+                                            logger.info("Successfully sent translation result as follow-up message")
                                         else:
-                                            if 'hello' in text.lower():
-                                                translated_text = "안녕하세요"
-                                            elif 'test' in text.lower():
-                                                translated_text = "테스트"
-                                            elif 'true' in text.lower():
-                                                translated_text = "정말"
-                                            elif 'working' in text.lower():
-                                                translated_text = "작동하는"
-                                            else:
-                                                translated_text = f"번역 서비스 일시 불가. 원문: {text.strip()}"
-                                    
-                                    logger.info(f"Final translation result: {translated_text}")
-                                    
-                                    # Show result modal directly - no processing modal needed
-                                    modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
-                                    
-                                    if modal_success:
-                                        logger.info("Successfully showed instant result modal")
-                                    else:
-                                        logger.error("Failed to show result modal")
-                                    
-                                    # Send response
-                                    self.send_response(200)
-                                    self.send_header('Content-type', 'text/plain')
-                                    self.end_headers()
-                                    self.wfile.write(b'')
-                                    
-                                except Exception as e:
-                                    logger.error(f"Fast translation error: {e}")
-                                    # Show error modal
-                                    error_text = f"빠른 번역 오류: {str(e)}"
-                                    self._show_translation_modal(trigger_id, text.strip(), error_text, source_lang)
-                                    
-                                    self.send_response(200)
-                                    self.send_header('Content-type', 'text/plain')
-                                    self.end_headers()
-                                    self.wfile.write(b'')
+                                            logger.error("No response_url available for follow-up message")
+                                        
+                                    except Exception as e:
+                                        logger.error(f"Background translation error: {e}")
+                                        logger.error(f"Error traceback: ", exc_info=True)
+                                        
+                                        # Send error follow-up message
+                                        error_response = {
+                                            "replace_original": True,
+                                            "response_type": "ephemeral",
+                                            "text": f"❌ 번역 오류: {str(e)}"
+                                        }
+                                        
+                                        if response_url:
+                                            send_delayed_response(response_url, error_response)
+                                            logger.info("Successfully sent error message as follow-up")
+                                        
+                                    finally:
+                                        # Remove from active requests
+                                        active_requests.discard(request_id)
                                 
-                                # Remove from active requests
-                                active_requests.discard(request_id)
+                                # Start background translation
+                                thread = threading.Thread(target=process_translation_and_respond)
+                                thread.daemon = True
+                                thread.start()
                                 return
                                 
                             else:
-                                # Show input modal for empty commands - modal only, no chat messages
-                                modal_success = self._show_input_modal(trigger_id)
-                                
-                                # Always respond with success, no chat messages
+                                # Handle empty commands with help message
                                 self.send_response(200)
-                                self.send_header('Content-type', 'text/plain')
+                                self.send_header('Content-type', 'application/json')
                                 self.end_headers()
-                                self.wfile.write(b'')
+                                help_response = {
+                                    "response_type": "ephemeral",
+                                    "text": "🌐 사용법: `/translate 번역할 텍스트` 또는 `/translate text to translate`"
+                                }
+                                self.wfile.write(json.dumps(help_response).encode())
                                 
                                 # Remove from active requests
                                 active_requests.discard(request_id)
@@ -370,182 +415,4 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(b'')
     
     
-# Removed complex processing/update modal functions - using instant result modal approach
-    
-    def _show_input_modal(self, trigger_id):
-        """Show modal for text input when no text is provided"""
-        try:
-            modal_payload = {
-                "trigger_id": trigger_id,
-                "view": {
-                    "type": "modal",
-                    "callback_id": "translation_input_modal",
-                    "title": {
-                        "type": "plain_text",
-                        "text": "번역하기"
-                    },
-                    "submit": {
-                        "type": "plain_text",
-                        "text": "번역"
-                    },
-                    "close": {
-                        "type": "plain_text",
-                        "text": "취소"
-                    },
-                    "blocks": [
-                        {
-                            "type": "input",
-                            "block_id": "text_input_block",
-                            "element": {
-                                "type": "plain_text_input",
-                                "action_id": "text_input",
-                                "multiline": True,
-                                "placeholder": {
-                                    "type": "plain_text",
-                                    "text": "번역할 텍스트를 입력하세요..."
-                                }
-                            },
-                            "label": {
-                                "type": "plain_text",
-                                "text": "텍스트"
-                            }
-                        }
-                    ]
-                }
-            }
-            
-            result = self._call_slack_api('views.open', modal_payload)
-            return result and result.get('ok', False)
-            
-        except Exception as e:
-            logger.error(f"Error showing input modal: {e}")
-            return False
-    
-    def _show_translation_modal(self, trigger_id, original_text, translated_text, source_lang):
-        """Show modal with original text and translation result"""
-        try:
-            # Split long text into multiple section blocks if needed
-            def create_text_sections(text, max_chars=2800):
-                if len(text) <= max_chars:
-                    return [{
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"```{text}```"
-                        }
-                    }]
-                
-                sections = []
-                start = 0
-                while start < len(text):
-                    end = min(start + max_chars, len(text))
-                    # Try to break at word boundary if not at end
-                    if end < len(text):
-                        last_space = text.rfind(' ', start, end)
-                        last_newline = text.rfind('\n', start, end)
-                        break_point = max(last_space, last_newline)
-                        if break_point > start:
-                            end = break_point
-                    
-                    chunk = text[start:end]
-                    sections.append({
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"```{chunk}```"
-                        }
-                    })
-                    
-                    start = end
-                
-                return sections
-            
-            # Create blocks with sections for original and translated text
-            blocks = []
-            
-            # Add original text sections
-            blocks.extend(create_text_sections(original_text))
-            
-            # Add divider
-            blocks.append({
-                "type": "divider"
-            })
-            
-            # Add translated text sections
-            blocks.extend(create_text_sections(translated_text))
-            
-            # Add context help
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "💡 텍스트를 선택하여 복사하세요. 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
-                    }
-                ]
-            })
-            
-            modal_payload = {
-                "trigger_id": trigger_id,
-                "view": {
-                    "type": "modal",
-                    "title": {
-                        "type": "plain_text",
-                        "text": "번역 결과"
-                    },
-                    "close": {
-                        "type": "plain_text",
-                        "text": "닫기"
-                    },
-                    "blocks": blocks
-                }
-            }
-            
-            result = self._call_slack_api('views.open', modal_payload)
-            success = result and result.get('ok', False)
-            if success:
-                logger.info(f"Successfully showed translation modal")
-            return success
-            
-        except Exception as e:
-            logger.error(f"Translation modal error: {e}")
-            return False
-    
-    def _call_slack_api(self, method, payload):
-        """Call Slack API method with improved error handling"""
-        try:
-            bot_token = os.getenv('SLACK_BOT_TOKEN')
-            if not bot_token:
-                logger.error("SLACK_BOT_TOKEN not configured - modal will not work")
-                return {'ok': False, 'error': 'missing_token'}
-            
-            url = f'https://slack.com/api/{method}'
-            headers = {
-                'Authorization': f'Bearer {bot_token}',
-                'Content-Type': 'application/json'
-            }
-            
-            logger.debug(f"Calling Slack API: {method}")
-            response = requests.post(url, json=payload, headers=headers, timeout=5)
-            response.raise_for_status()
-            
-            result = response.json()
-            if not result.get('ok'):
-                error_msg = result.get('error', 'Unknown error')
-                logger.error(f"Slack API error for {method}: {error_msg}")
-                if error_msg == 'not_found':
-                    logger.error("View not found - this usually means the modal was closed or the view_id expired")
-                logger.debug(f"Full API response: {result}")
-            else:
-                logger.debug(f"Slack API {method} success")
-            return result
-                
-        except requests.exceptions.Timeout as e:
-            logger.error(f"Slack API timeout for {method}: {e}")
-            return {'ok': False, 'error': 'timeout'}
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Slack API request error for {method}: {e}")
-            return {'ok': False, 'error': f'request_error: {str(e)}'}
-        except Exception as e:
-            logger.error(f"Slack API call error for {method}: {e}")
-            return {'ok': False, 'error': str(e)}
+# Removed all modal functions - using delayed response pattern with follow-up messages
