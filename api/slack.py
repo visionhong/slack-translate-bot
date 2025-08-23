@@ -42,24 +42,34 @@ class SimpleTranslationService:
         return 'en'
     
     def translate(self, text: str) -> str:
+        logger.info(f"SimpleTranslationService.translate called with text: {text[:100]}...")
+        
         if not text.strip():
+            logger.info("Empty text provided, returning as-is")
             return text
             
         # If service not available, provide mock translation for testing
         if not self.available:
+            logger.warning("Translation service not available, using mock translation")
             source_lang = self.detect_language(text)
             if source_lang == 'ko':
                 return f"[Mock] Hello (translation of: {text})"
             else:
                 return f"[Mock] 안녕하세요 (번역: {text})"
         
+        logger.info(f"Azure OpenAI client available, endpoint: {self.endpoint}")
+        logger.info(f"Using deployment: {self.deployment_name}")
+        
         source_lang = self.detect_language(text)
+        logger.info(f"Detected source language: {source_lang}")
         
         try:
             if source_lang == 'ko':
                 prompt = f"Translate the following Korean text to natural English:\n\n{text}"
             else:
                 prompt = f"Translate the following English text to natural Korean:\n\n{text}"
+            
+            logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
             
             response = self.client.chat.completions.create(
                 model=self.deployment_name,
@@ -70,12 +80,17 @@ class SimpleTranslationService:
                 max_completion_tokens=500
             )
             
+            logger.info(f"Received response from Azure OpenAI: {response}")
+            
             translated_text = response.choices[0].message.content.strip()
+            logger.info(f"Extracted translated text: {translated_text}")
             logger.info(f"Successfully translated text from {source_lang}")
             return translated_text
             
         except Exception as e:
-            logger.error(f"Translation error: {e}")
+            logger.error(f"Azure OpenAI translation error: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error details: {str(e)}")
             # Fallback to mock translation
             if source_lang == 'ko':
                 return f"[Fallback] Hello (translation of: {text})"
@@ -157,7 +172,11 @@ class handler(BaseHTTPRequestHandler):
                                 # Translate immediately and show modal (must be within 3 seconds)
                                 try:
                                     source_lang = translation_service.detect_language(text)
+                                    logger.info(f"Detected language: {source_lang} for text: {text[:50]}...")
+                                    
                                     translated_text = translation_service.translate(text.strip())
+                                    logger.info(f"Translation result: {translated_text[:100]}...")
+                                    logger.info(f"Translation result length: {len(translated_text)}")
                                     
                                     # Try to show modal with results
                                     modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
