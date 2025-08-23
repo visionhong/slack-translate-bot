@@ -355,15 +355,7 @@ class handler(BaseHTTPRequestHandler):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn", 
-                                "text": f"```{original_text[:2000]}```"
-                            },
-                            "accessory": {
-                                "type": "button",
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "복사"
-                                },
-                                "action_id": "copy_original"
+                                "text": f"{original_text[:2000]}"
                             }
                         },
                         {
@@ -380,15 +372,7 @@ class handler(BaseHTTPRequestHandler):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"```{translated_text[:2000]}```"
-                            },
-                            "accessory": {
-                                "type": "button",
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "복사"
-                                },
-                                "action_id": "copy_translation"
+                                "text": f"{translated_text[:2000]}"
                             }
                         },
                         {
@@ -396,7 +380,7 @@ class handler(BaseHTTPRequestHandler):
                             "elements": [
                                 {
                                     "type": "mrkdwn",
-                                    "text": "💡 텍스트를 편집하고 복사해서 사용하세요!"
+                                    "text": "💡 텍스트를 선택해서 복사하세요!"
                                 }
                             ]
                         }
