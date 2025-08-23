@@ -109,7 +109,7 @@ class SimpleTranslationService:
                 ],
                 max_completion_tokens=16384,
                 model=self.deployment_name,
-                timeout=30  # 30 second timeout
+                timeout=10  # 10 second timeout
             )
             logger.info("Azure OpenAI request completed successfully")
             
@@ -261,50 +261,52 @@ class handler(BaseHTTPRequestHandler):
                             active_requests.add(request_id)
                             
                             if text.strip():
-                                # Send immediate acknowledgment
-                                self.send_response(200)
-                                self.send_header('Content-type', 'text/plain')
-                                self.end_headers()
-                                self.wfile.write(b'')
-                                
-                                # Process translation and show result modal directly
-                                def process_translation():
-                                    try:
-                                        logger.info(f"=== Starting direct translation processing for request {request_id} ===")
-                                        source_lang = translation_service.detect_language(text)
-                                        logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
-                                        
-                                        logger.info(f"About to call translation service for request {request_id}")
-                                        translated_text = translation_service.translate(text.strip())
-                                        logger.info(f"Translation service returned for request {request_id}")
-                                        logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
-                                        logger.info(f"Translation result preview: {translated_text[:100]}...")
-                                        
-                                        if not translated_text or translated_text.strip() == "":
-                                            logger.error("Translation returned empty result")
-                                            translated_text = "번역 결과를 가져올 수 없습니다."
-                                        
-                                        # Show result modal directly with trigger_id (no processing modal)
-                                        modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
-                                        if not modal_success:
-                                            logger.error("Failed to show translation result modal")
-                                        else:
-                                            logger.info("Successfully showed translation result modal")
-                                        
-                                    except Exception as e:
-                                        logger.error(f"Translation processing error: {e}")
-                                        logger.error(f"Error traceback: ", exc_info=True)
-                                        # Show error modal
-                                        error_text = f"번역 오류: {str(e)}"
-                                        self._show_translation_modal(trigger_id, text.strip(), error_text, source_lang)
-                                    finally:
-                                        # Remove from active requests
-                                        active_requests.discard(request_id)
-                                
-                                # Start translation in background thread
-                                thread = threading.Thread(target=process_translation)
-                                thread.daemon = True
-                                thread.start()
+                                # Process translation synchronously and show result modal directly
+                                try:
+                                    logger.info(f"=== Starting direct translation processing for request {request_id} ===")
+                                    source_lang = translation_service.detect_language(text)
+                                    logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
+                                    
+                                    logger.info(f"About to call translation service for request {request_id}")
+                                    translated_text = translation_service.translate(text.strip())
+                                    logger.info(f"Translation service returned for request {request_id}")
+                                    logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
+                                    logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                    
+                                    if not translated_text or translated_text.strip() == "":
+                                        logger.error("Translation returned empty result")
+                                        translated_text = "번역 결과를 가져올 수 없습니다."
+                                    
+                                    # Show result modal directly with trigger_id
+                                    modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
+                                    if modal_success:
+                                        logger.info("Successfully showed translation result modal")
+                                        # Send silent acknowledgment only after modal success
+                                        self.send_response(200)
+                                        self.send_header('Content-type', 'text/plain')
+                                        self.end_headers()
+                                        self.wfile.write(b'')
+                                    else:
+                                        logger.error("Failed to show translation result modal")
+                                        self.send_response(200)
+                                        self.send_header('Content-type', 'text/plain')
+                                        self.end_headers()
+                                        self.wfile.write(b'')
+                                    
+                                except Exception as e:
+                                    logger.error(f"Translation processing error: {e}")
+                                    logger.error(f"Error traceback: ", exc_info=True)
+                                    # Show error modal
+                                    error_text = f"번역 오류: {str(e)}"
+                                    self._show_translation_modal(trigger_id, text.strip(), error_text, source_lang)
+                                    self.send_response(200)
+                                    self.send_header('Content-type', 'text/plain')
+                                    self.end_headers()
+                                    self.wfile.write(b'')
+                                finally:
+                                    # Remove from active requests
+                                    active_requests.discard(request_id)
+                                return
                                 
                             else:
                                 # Show input modal for empty commands - modal only, no chat messages
