@@ -8,7 +8,7 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 
 # OpenAI dependencies
-openai==1.3.0
+openai==1.55.3
 
 # Additional async support
 asyncio-throttle==1.0.2

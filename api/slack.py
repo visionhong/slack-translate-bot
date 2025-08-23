@@ -32,6 +32,9 @@ class handler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
             
+            # Initialize data variable to avoid scope issues
+            data = None
+            
             # Handle Slack URL verification first
             if post_data:
                 try:
@@ -44,44 +47,58 @@ class handler(BaseHTTPRequestHandler):
                         self.wfile.write(challenge.encode())
                         return
                 except json.JSONDecodeError:
-                    pass
+                    logger.warning("Failed to parse JSON from Slack request")
+                    data = None
             
             # Process with Slack Bolt if available
             if slack_app:
                 try:
-                    # Convert HTTP request to Slack request format
-                    slack_request = {
-                        "method": "POST",
-                        "url": self.path,
-                        "headers": dict(self.headers),
-                        "body": post_data
-                    }
+                    # Use proper Slack Bolt request handling
+                    from slack_bolt.request.async_request import AsyncBoltRequest
+                    from slack_bolt.response import BoltResponse
                     
-                    # Create event loop for async processing
+                    # Convert to Slack request format
+                    bolt_request = AsyncBoltRequest(
+                        body=post_data,
+                        headers=dict(self.headers)
+                    )
+                    
+                    # Process with event loop
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     
-                    # Process the request with Slack app
-                    # For now, just acknowledge receipt and log
-                    logger.info(f"Processing Slack event: {data.get('type', 'unknown')}")
+                    # Handle the request through Slack Bolt
+                    async def process_slack_request():
+                        try:
+                            response = await slack_app.async_process(bolt_request)
+                            return response
+                        except Exception as e:
+                            logger.error(f"Slack Bolt processing error: {e}")
+                            return BoltResponse(status=200, body="OK")
                     
-                    response_data = {
-                        "status": "processed",
-                        "message": "Event processed by Slack Bolt"
-                    }
+                    # Run the async processing
+                    response = loop.run_until_complete(process_slack_request())
+                    loop.close()
                     
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
+                    # Send response
+                    self.send_response(response.status)
+                    for key, value in response.headers.items():
+                        self.send_header(key, value)
                     self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     
-                    self.wfile.write(json.dumps(response_data).encode())
+                    response_body = response.body if response.body else "OK"
+                    self.wfile.write(response_body.encode())
+                    
+                    # Log event type if available
+                    if data:
+                        logger.info(f"Processed Slack event: {data.get('type', 'unknown')}")
                     
                 except Exception as e:
                     logger.error(f"Slack processing error: {e}")
                     self._send_error_response(e)
             else:
-                # Fallback response
+                # Fallback response when Slack app is not available
                 response_data = {
                     "status": "received",
                     "message": "Slack app not available, but event received"
