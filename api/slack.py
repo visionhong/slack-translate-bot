@@ -358,7 +358,7 @@ class handler(BaseHTTPRequestHandler):
                                 "type": "plain_text_input",
                                 "action_id": "original_text",
                                 "multiline": True,
-                                "initial_value": original_text
+                                "initial_value": original_text[:3000]
                             },
                             "label": {
                                 "type": "plain_text",
@@ -382,7 +382,7 @@ class handler(BaseHTTPRequestHandler):
                                 "type": "plain_text_input",
                                 "action_id": "translated_text",
                                 "multiline": True,
-                                "initial_value": translated_text
+                                "initial_value": translated_text[:3000]
                             },
                             "label": {
                                 "type": "plain_text",
