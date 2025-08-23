@@ -1,83 +1,81 @@
+from http.server import BaseHTTPRequestHandler
 import os
 import sys
 import json
 import logging
-from typing import Dict, Any
+import urllib.parse
 
 # Add src directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-from slack_bolt import App
-from slack_bolt.adapter.aws_lambda.serverless_handler import SlackRequestHandler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create Slack app
-app = App(
-    token=os.environ.get("SLACK_BOT_TOKEN"),
-    signing_secret=os.environ.get("SLACK_SIGNING_SECRET"),
-    process_before_response=True
-)
-
-# Import handlers
-try:
-    from src.handlers.command import handle_translate_command, handle_help_command, handle_stats_command
-    from src.handlers.events import handle_app_mention, handle_direct_message, handle_reaction_added
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            
+            # For now, just return a basic response
+            # TODO: Implement actual Slack event handling
+            response_data = {
+                "status": "received",
+                "message": "Slack event received successfully",
+                "debug": {
+                    "content_length": content_length,
+                    "headers": dict(self.headers),
+                    "data_preview": post_data[:100] if post_data else "No data"
+                }
+            }
+            
+            # Handle Slack URL verification
+            if post_data:
+                try:
+                    data = json.loads(post_data)
+                    if data.get('type') == 'url_verification':
+                        challenge = data.get('challenge', '')
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/plain')
+                        self.end_headers()
+                        self.wfile.write(challenge.encode())
+                        return
+                except json.JSONDecodeError:
+                    pass
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            self.wfile.write(json.dumps(response_data).encode())
+            
+        except Exception as e:
+            logger.error(f"Handler error: {e}")
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            error_response = {
+                'error': 'Internal server error', 
+                'message': str(e)
+            }
+            self.wfile.write(json.dumps(error_response).encode())
     
-    # Register handlers
-    app.command("/translate")(handle_translate_command)
-    app.command("/translate-help")(handle_help_command) 
-    app.command("/translate-stats")(handle_stats_command)
-    app.event("app_mention")(handle_app_mention)
-    app.event("message")(handle_direct_message)
-    app.event("reaction_added")(handle_reaction_added)
-    
-except ImportError as e:
-    logger.warning(f"Could not import handlers: {e}")
-
-# Create handler
-handler = SlackRequestHandler(app)
-
-
-def handler_func(request) -> Dict[str, Any]:
-    """Main handler function for Vercel"""
-    try:
-        # Convert Vercel request to format expected by Slack handler
-        if hasattr(request, 'method'):
-            method = request.method
-        else:
-            method = request.get('httpMethod', 'POST')
-            
-        if hasattr(request, 'body'):
-            body = request.body
-        else:
-            body = request.get('body', '')
-            
-        if hasattr(request, 'headers'):
-            headers = dict(request.headers)
-        else:
-            headers = request.get('headers', {})
-            
-        # Handle the request
-        response = handler.handle({
-            'httpMethod': method,
-            'body': body,
-            'headers': headers,
-            'isBase64Encoded': False
-        }, None)
-        
-        return {
-            'statusCode': response.get('statusCode', 200),
-            'headers': response.get('headers', {}),
-            'body': response.get('body', '{"status": "ok"}')
+    def do_GET(self):
+        """Handle GET requests for testing"""
+        response_data = {
+            "status": "ok",
+            "service": "slack-translate-bot",
+            "endpoint": "slack-events"
         }
         
-    except Exception as e:
-        logger.error(f"Handler error: {e}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'error': 'Internal server error'})
-        }
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        self.wfile.write(json.dumps(response_data).encode())

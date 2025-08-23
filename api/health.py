@@ -1,32 +1,33 @@
-import time
+from http.server import BaseHTTPRequestHandler
 import json
-from typing import Dict, Any
+import time
 
 start_time = time.time()
 
-
-def handler_func(request) -> Dict[str, Any]:
-    """Health check endpoint for the translation bot"""
-    try:
-        uptime = int(time.time() - start_time)
-        
-        response_data = {
-            "status": "healthy",
-            "service": "slack-translation-bot",
-            "uptime_seconds": uptime,
-            "version": "1.0.0",
-            "environment": "production"
-        }
-        
-        return {
-            'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps(response_data)
-        }
-        
-    except Exception as e:
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'error': 'Internal server error', 'message': str(e)})
-        }
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            uptime = int(time.time() - start_time)
+            
+            response_data = {
+                "status": "healthy",
+                "service": "slack-translation-bot",
+                "uptime_seconds": uptime,
+                "version": "1.0.0",
+                "environment": "production"
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            self.wfile.write(json.dumps(response_data).encode())
+            
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            error_response = {'error': 'Internal server error', 'message': str(e)}
+            self.wfile.write(json.dumps(error_response).encode())
