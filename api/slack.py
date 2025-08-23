@@ -116,12 +116,32 @@ class SimpleTranslationService:
             )
             logger.info("Azure OpenAI response received successfully!")
             
-            logger.info(f"Response object type: {type(response)}")
-            logger.info(f"Response choices length: {len(response.choices)}")
+            # 2. 응답 구조 상세 확인
+            logger.info(f"🔍 Response analysis:")
+            logger.info(f"   - Response type: {type(response)}")
+            logger.info(f"   - Choices count: {len(response.choices)}")
+            logger.info(f"   - Choice[0] type: {type(response.choices[0])}")
+            logger.info(f"   - Message type: {type(response.choices[0].message)}")
+            logger.info(f"   - Content type: {type(response.choices[0].message.content)}")
             
-            translated_text = response.choices[0].message.content.strip()
-            logger.info(f"Translation result extracted, length: {len(translated_text)}")
-            logger.info(f"Full translation result: '{translated_text}'")
+            # 3. Content 안전하게 추출
+            raw_content = response.choices[0].message.content
+            logger.info(f"   - Raw content: '{raw_content}'")
+            logger.info(f"   - Raw content is None: {raw_content is None}")
+            logger.info(f"   - Raw content length: {len(raw_content) if raw_content else 0}")
+            
+            if raw_content is None:
+                logger.error("❌ Azure OpenAI returned None content!")
+                translated_text = ""
+            else:
+                translated_text = raw_content.strip()
+                logger.info(f"✅ Content extracted successfully")
+            
+            logger.info(f"📝 Final translation result: '{translated_text}'")
+            logger.info(f"📊 Final result length: {len(translated_text)}")
+            
+            # 4. 전체 응답 객체 로깅 (디버깅용)
+            logger.info(f"🌐 Full response object: {response}")
             
             # Disable caching for debugging
             # with cache_lock:
@@ -301,10 +321,17 @@ class handler(BaseHTTPRequestHandler):
                                         # Try Azure OpenAI translation with detailed logging
                                         logger.info(f"About to call Azure OpenAI translation service...")
                                         try:
+                                            logger.info(f"🚀 Starting Azure OpenAI translation call...")
                                             translated_text = translation_service.translate(text.strip())
-                                            logger.info(f"Azure OpenAI call SUCCESS for request {request_id}")
-                                            logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
-                                            logger.info(f"Translation result preview: {translated_text[:100]}...")
+                                            logger.info(f"✅ Azure OpenAI call SUCCESS for request {request_id}")
+                                            
+                                            # 번역 결과 상세 분석
+                                            logger.info(f"🔍 Translation result analysis:")
+                                            logger.info(f"   - Result type: {type(translated_text)}")
+                                            logger.info(f"   - Result is None: {translated_text is None}")
+                                            logger.info(f"   - Result is empty string: {translated_text == '' if translated_text else 'N/A'}")
+                                            logger.info(f"   - Result length: {len(translated_text) if translated_text else 0}")
+                                            logger.info(f"   - Result preview: '{translated_text[:100]}...' " + f"(truncated)" if translated_text and len(translated_text) > 100 else f"'{translated_text}'")
                                         except Exception as translation_error:
                                             logger.error(f"Azure OpenAI translation FAILED for request {request_id}: {translation_error}")
                                             logger.error(f"Translation error type: {type(translation_error).__name__}")
