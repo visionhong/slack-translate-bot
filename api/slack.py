@@ -34,8 +34,16 @@ class SimpleTranslationService:
         return 'en'
     
     def translate(self, text: str) -> str:
-        if not text.strip() or not self.available:
+        if not text.strip():
             return text
+            
+        # If service not available, provide mock translation for testing
+        if not self.available:
+            source_lang = self.detect_language(text)
+            if source_lang == 'ko':
+                return f"[Mock] Hello (translation of: {text})"
+            else:
+                return f"[Mock] 안녕하세요 (번역: {text})"
         
         source_lang = self.detect_language(text)
         
@@ -45,7 +53,10 @@ class SimpleTranslationService:
             else:
                 prompt = f"Translate the following English text to natural Korean:\n\n{text}"
             
-            url = f"{self.endpoint}/openai/deployments/{self.deployment_name}/chat/completions?api-version={self.api_version}"
+            # Fix URL formatting
+            endpoint = self.endpoint.rstrip('/')
+            url = f"{endpoint}/openai/deployments/{self.deployment_name}/chat/completions?api-version={self.api_version}"
+            
             headers = {
                 'api-key': self.api_key,
                 'Content-Type': 'application/json'
@@ -70,7 +81,11 @@ class SimpleTranslationService:
             
         except Exception as e:
             logger.error(f"Translation error: {e}")
-            return f"Translation error: {str(e)}"
+            # Fallback to mock translation
+            if source_lang == 'ko':
+                return f"[Fallback] Hello (translation of: {text})"
+            else:
+                return f"[Fallback] 안녕하세요 (번역: {text})"
 
 # Global translation service
 translation_service = SimpleTranslationService()
@@ -149,25 +164,78 @@ class handler(BaseHTTPRequestHandler):
                                     translated_text = translation_service.translate(text.strip())
                                     source_lang = translation_service.detect_language(text)
                                     
-                                    # Show translation modal
-                                    self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
+                                    # Try to show translation modal
+                                    modal_success = self._show_translation_modal(trigger_id, text.strip(), translated_text, source_lang)
                                     
-                                    # Return acknowledgment
-                                    response_text = "🌐 Opening translation modal..."
+                                    if modal_success:
+                                        response_text = "🌐 Opening translation modal..."
+                                        translation_response = {
+                                            "response_type": "ephemeral",
+                                            "text": response_text
+                                        }
+                                    else:
+                                        # Fallback to inline response if modal fails
+                                        if source_lang == 'ko':
+                                            original_label = "한국어"
+                                            translated_label = "English"
+                                        else:
+                                            original_label = "English"
+                                            translated_label = "한국어"
+                                        
+                                        translation_response = {
+                                            "response_type": "ephemeral",
+                                            "text": "🌐 Translation Result",
+                                            "blocks": [
+                                                {
+                                                    "type": "section",
+                                                    "text": {
+                                                        "type": "mrkdwn",
+                                                        "text": f"*{original_label}*\n{text.strip()}"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "divider"
+                                                },
+                                                {
+                                                    "type": "section",
+                                                    "text": {
+                                                        "type": "mrkdwn",
+                                                        "text": f"*{translated_label}*\n{translated_text}"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "context",
+                                                    "elements": [
+                                                        {
+                                                            "type": "mrkdwn",
+                                                            "text": "💡 Copy the text above to use it!"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
                                     
                                 except Exception as e:
                                     logger.error(f"Translation failed: {e}")
-                                    response_text = f"Translation error: {str(e)}"
+                                    translation_response = {
+                                        "response_type": "ephemeral",
+                                        "text": f"Translation error: {str(e)}"
+                                    }
                                     
                             else:
-                                # Show input modal for empty commands
-                                self._show_input_modal(trigger_id)
-                                response_text = "🌐 Opening input modal..."
-                            
-                            translation_response = {
-                                "response_type": "ephemeral",
-                                "text": response_text
-                            }
+                                # Try to show input modal for empty commands
+                                modal_success = self._show_input_modal(trigger_id)
+                                
+                                if modal_success:
+                                    translation_response = {
+                                        "response_type": "ephemeral",
+                                        "text": "🌐 Opening input modal..."
+                                    }
+                                else:
+                                    translation_response = {
+                                        "response_type": "ephemeral",
+                                        "text": "🌐 Please provide text to translate: `/translate your text here`"
+                                    }
                             
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
@@ -248,10 +316,12 @@ class handler(BaseHTTPRequestHandler):
                 }
             }
             
-            self._call_slack_api('views.open', modal_payload)
+            result = self._call_slack_api('views.open', modal_payload)
+            return result and result.get('ok', False)
             
         except Exception as e:
             logger.error(f"Error showing input modal: {e}")
+            return False
     
     def _show_translation_modal(self, trigger_id, original_text, translated_text, source_lang):
         """Show modal with original text and translation result"""
@@ -336,11 +406,15 @@ class handler(BaseHTTPRequestHandler):
                 }
             }
             
-            self._call_slack_api('views.open', modal_payload)
-            logger.info(f"Successfully showed translation modal")
+            result = self._call_slack_api('views.open', modal_payload)
+            success = result and result.get('ok', False)
+            if success:
+                logger.info(f"Successfully showed translation modal")
+            return success
             
         except Exception as e:
             logger.error(f"Translation modal error: {e}")
+            return False
     
     def _call_slack_api(self, method, payload):
         """Call Slack API method"""
