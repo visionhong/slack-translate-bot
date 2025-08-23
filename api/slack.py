@@ -109,7 +109,7 @@ class SimpleTranslationService:
                 ],
                 max_completion_tokens=16384,
                 model=self.deployment_name,
-                timeout=10  # 10 second timeout
+                timeout=5  # 5 second timeout
             )
             logger.info("Azure OpenAI request completed successfully")
             
@@ -282,7 +282,50 @@ class handler(BaseHTTPRequestHandler):
                                             source_lang = translation_service.detect_language(text)
                                             logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
                                             
-                                            translated_text = translation_service.translate(text.strip())
+                                            # Add thread-level timeout for extra safety
+                                            import threading
+                                            import queue
+                                            
+                                            result_queue = queue.Queue()
+                                            
+                                            def translate_with_timeout():
+                                                try:
+                                                    result = translation_service.translate(text.strip())
+                                                    result_queue.put(('success', result))
+                                                except Exception as e:
+                                                    result_queue.put(('error', str(e)))
+                                            
+                                            # Start translation with timeout
+                                            translate_thread = threading.Thread(target=translate_with_timeout)
+                                            translate_thread.daemon = True
+                                            translate_thread.start()
+                                            translate_thread.join(timeout=8)  # 8 second max wait
+                                            
+                                            if translate_thread.is_alive():
+                                                logger.error("Translation thread timeout - using fallback")
+                                                # Use fallback translation
+                                                if source_lang == 'ko':
+                                                    translated_text = f"I ate jajangmyeon~~~ (timeout fallback for: {text.strip()})"
+                                                else:
+                                                    translated_text = f"자장면을 먹었어~~~ (타임아웃 폴백: {text.strip()})"
+                                            else:
+                                                try:
+                                                    status, result = result_queue.get_nowait()
+                                                    if status == 'success':
+                                                        translated_text = result
+                                                    else:
+                                                        logger.error(f"Translation error: {result}")
+                                                        if source_lang == 'ko':
+                                                            translated_text = f"Hello! (error fallback for: {text.strip()})"
+                                                        else:
+                                                            translated_text = f"안녕하세요! (오류 폴백: {text.strip()})"
+                                                except queue.Empty:
+                                                    logger.error("No translation result available")
+                                                    if source_lang == 'ko':
+                                                        translated_text = f"Hello! (no result for: {text.strip()})"
+                                                    else:
+                                                        translated_text = f"안녕하세요! (결과 없음: {text.strip()})"
+                                            
                                             logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
                                             logger.info(f"Translation result preview: {translated_text[:100]}...")
                                             
