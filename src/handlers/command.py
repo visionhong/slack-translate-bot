@@ -120,11 +120,11 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
         # Detect source language for proper labeling
         source_lang = translation_service.detect_language(original_text)
         if source_lang == 'ko':
-            original_label = "한국어"
-            translated_label = "English"
+            original_label = "원본 (한국어)"
+            translated_label = "번역 (English)"
         else:
-            original_label = "English"
-            translated_label = "한국어"
+            original_label = "원본 (English)"
+            translated_label = "번역 (한국어)"
         
         await client.views_open(
             trigger_id=trigger_id,
@@ -141,20 +141,39 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                 },
                 "blocks": [
                     {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{original_label}*\n```{original_text}```"
+                        "type": "input",
+                        "block_id": "original_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "original_text",
+                            "multiline": True,
+                            "initial_value": original_text,
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "원본 텍스트"
+                            }
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": original_label
                         }
                     },
                     {
-                        "type": "divider"
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{translated_label}*\n```{translated_text}```"
+                        "type": "input",
+                        "block_id": "translated_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "translated_text",
+                            "multiline": True,
+                            "initial_value": translated_text,
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "번역된 텍스트"
+                            }
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": translated_label
                         }
                     },
                     {
@@ -162,7 +181,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "💡 텍스트를 선택하고 복사해서 사용하세요! 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
+                                "text": "💡 텍스트 영역을 클릭하여 전체 내용을 확인하고 편집할 수 있습니다. 텍스트를 선택하여 복사하세요."
                             }
                         ]
                     }
@@ -214,11 +233,11 @@ async def show_translation_result_update(client, view_id, original_text, user_id
         # Detect source language
         source_lang = translation_service.detect_language(original_text)
         if source_lang == 'ko':
-            original_label = "한국어"
-            translated_label = "English"
+            original_label = "원본 (한국어)"
+            translated_label = "번역 (English)"
         else:
-            original_label = "English"
-            translated_label = "한국어"
+            original_label = "원본 (English)"
+            translated_label = "번역 (한국어)"
         
         await client.views_update(
             view_id=view_id,
@@ -235,20 +254,39 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                 },
                 "blocks": [
                     {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{original_label}*\n```{original_text}```"
+                        "type": "input",
+                        "block_id": "original_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "original_text",
+                            "multiline": True,
+                            "initial_value": original_text,
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "원본 텍스트"
+                            }
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": original_label
                         }
                     },
                     {
-                        "type": "divider"
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{translated_label}*\n```{translated_text}```"
+                        "type": "input",
+                        "block_id": "translated_text_block",
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "translated_text",
+                            "multiline": True,
+                            "initial_value": translated_text,
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "번역된 텍스트"
+                            }
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": translated_label
                         }
                     },
                     {
@@ -256,7 +294,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "💡 텍스트를 선택하고 복사해서 사용하세요! 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
+                                "text": "💡 텍스트 영역을 클릭하여 전체 내용을 확인하고 편집할 수 있습니다. 텍스트를 선택하여 복사하세요."
                             }
                         ]
                     }
