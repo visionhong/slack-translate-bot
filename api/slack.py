@@ -165,7 +165,7 @@ class handler(BaseHTTPRequestHandler):
                                     if modal_success:
                                         translation_response = {
                                             "response_type": "ephemeral",
-                                            "text": "🌐 Opening translation modal..."
+                                            "text": ""
                                         }
                                     else:
                                         # Fallback: show inline response
@@ -224,7 +224,7 @@ class handler(BaseHTTPRequestHandler):
                                 if modal_success:
                                     translation_response = {
                                         "response_type": "ephemeral",
-                                        "text": "🌐 Opening input modal..."
+                                        "text": ""
                                     }
                                 else:
                                     translation_response = {
