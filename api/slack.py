@@ -421,8 +421,8 @@ class handler(BaseHTTPRequestHandler):
         try:
             bot_token = os.getenv('SLACK_BOT_TOKEN')
             if not bot_token:
-                logger.error("SLACK_BOT_TOKEN not configured")
-                return None
+                logger.error("SLACK_BOT_TOKEN not configured - modal will not work")
+                return {'ok': False, 'error': 'missing_token'}
             
             url = f'https://slack.com/api/{method}'
             headers = {
@@ -440,4 +440,4 @@ class handler(BaseHTTPRequestHandler):
                 
         except Exception as e:
             logger.error(f"Slack API call error: {e}")
-            return None
+            return {'ok': False, 'error': str(e)}
