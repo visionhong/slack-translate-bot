@@ -1,29 +1,32 @@
 import time
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-
-app = FastAPI()
+import json
+from typing import Dict, Any
 
 start_time = time.time()
 
 
-@app.get("/api/health")
-async def health_check():
+def handler_func(request) -> Dict[str, Any]:
     """Health check endpoint for the translation bot"""
-    uptime = int(time.time() - start_time)
-    
-    return JSONResponse(
-        status_code=200,
-        content={
+    try:
+        uptime = int(time.time() - start_time)
+        
+        response_data = {
             "status": "healthy",
             "service": "slack-translation-bot",
             "uptime_seconds": uptime,
             "version": "1.0.0",
             "environment": "production"
         }
-    )
-
-
-# For Vercel
-def handler_func(request, context=None):
-    return app
+        
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps(response_data)
+        }
+        
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({'error': 'Internal server error', 'message': str(e)})
+        }
