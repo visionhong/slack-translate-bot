@@ -112,7 +112,6 @@ class SimpleTranslationService:
                 ],
                 max_completion_tokens=16384,
                 model=self.deployment_name,
-                timeout=3  # 3 second timeout
             )
             logger.info("Azure OpenAI response received successfully!")
             
@@ -173,7 +172,6 @@ def send_delayed_response(response_url, message):
             response_url,
             json=message,
             headers={'Content-Type': 'application/json'},
-            timeout=10  # Increased timeout
         )
         
         logger.info(f"Response status code: {response.status_code}")
