@@ -81,11 +81,11 @@ class SimpleTranslationService:
             else:
                 return f"[Mock] 안녕하세요 (번역: {text})"
         
-        logger.debug(f"Azure OpenAI client available, endpoint: {self.endpoint}")
-        logger.debug(f"Using deployment: {self.deployment_name}")
+        logger.info(f"Azure OpenAI client available, endpoint: {self.endpoint}")
+        logger.info(f"Using deployment: {self.deployment_name}")
         
         source_lang = self.detect_language(text)
-        logger.debug(f"Detected source language: {source_lang}")
+        logger.info(f"Detected source language: {source_lang}")
         
         try:
             if source_lang == 'ko':
@@ -93,24 +93,39 @@ class SimpleTranslationService:
             else:
                 prompt = f"Translate to Korean:\n{text}"
             
-            logger.debug(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
+            logger.info(f"Sending request to Azure OpenAI with prompt: {prompt[:100]}...")
             
-            response = self.client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_completion_tokens=16384,
-                model=self.deployment_name
-            )
+            # Add timeout using signal (works on Unix-based systems like Vercel)
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Azure OpenAI request timed out after 30 seconds")
+            
+            # Set timeout signal
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(30)  # 30 second timeout
+            
+            try:
+                response = self.client.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_completion_tokens=16384,
+                    model=self.deployment_name
+                )
+                logger.info("Azure OpenAI request completed successfully")
+            finally:
+                signal.alarm(0)  # Cancel the alarm
             
             translated_text = response.choices[0].message.content.strip()
+            logger.info(f"Translation result extracted, length: {len(translated_text)}")
             
             # Disable caching for debugging
             # with cache_lock:
@@ -126,14 +141,21 @@ class SimpleTranslationService:
             logger.info(f"Successfully translated text from {source_lang}")
             return translated_text
             
+        except TimeoutError as e:
+            logger.error(f"Azure OpenAI request timeout: {e}")
+            # Fallback to mock translation on timeout
+            if source_lang == 'ko':
+                return f"[Timeout] Hello (translation of: {text})"
+            else:
+                return f"[Timeout] 안녕하세요 (번역: {text})"
         except Exception as e:
             logger.error(f"Azure OpenAI translation error: {e}")
             logger.error(f"Error type: {type(e).__name__}")
             # Fallback to mock translation
             if source_lang == 'ko':
-                return f"[Fallback] Hello (translation of: {text})"
+                return f"[Error] Hello (translation of: {text})"
             else:
-                return f"[Fallback] 안녕하세요 (번역: {text})"
+                return f"[Error] 안녕하세요 (번역: {text})"
 
 def get_request_id(user_id, text):
     """Generate unique request ID"""
@@ -345,10 +367,13 @@ class handler(BaseHTTPRequestHandler):
                                     # Process translation asynchronously and update modal
                                     def process_translation():
                                         try:
+                                            logger.info(f"=== Starting translation processing for request {request_id} ===")
                                             source_lang = translation_service.detect_language(text)
                                             logger.info(f"Processing translation for request {request_id}, source_lang: {source_lang}")
                                             
+                                            logger.info(f"About to call translation service for request {request_id}")
                                             translated_text = translation_service.translate(text.strip())
+                                            logger.info(f"Translation service returned for request {request_id}")
                                             logger.info(f"Translation completed for request {request_id}, result length: {len(translated_text)}")
                                             logger.info(f"Translation result preview: {translated_text[:100]}...")
                                             
