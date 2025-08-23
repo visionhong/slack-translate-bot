@@ -352,17 +352,18 @@ class handler(BaseHTTPRequestHandler):
                             }
                         },
                         {
-                            "type": "input",
-                            "block_id": "original_text_block",
-                            "element": {
-                                "type": "plain_text_input",
-                                "action_id": "original_text",
-                                "multiline": True,
-                                "initial_value": original_text[:3000]
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn", 
+                                "text": f"```{original_text[:2000]}```"
                             },
-                            "label": {
-                                "type": "plain_text",
-                                "text": "원문"
+                            "accessory": {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "복사"
+                                },
+                                "action_id": "copy_original"
                             }
                         },
                         {
@@ -376,17 +377,18 @@ class handler(BaseHTTPRequestHandler):
                             }
                         },
                         {
-                            "type": "input",
-                            "block_id": "translated_text_block",
-                            "element": {
-                                "type": "plain_text_input",
-                                "action_id": "translated_text",
-                                "multiline": True,
-                                "initial_value": translated_text[:3000]
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"```{translated_text[:2000]}```"
                             },
-                            "label": {
-                                "type": "plain_text",
-                                "text": "번역문"
+                            "accessory": {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "복사"
+                                },
+                                "action_id": "copy_translation"
                             }
                         },
                         {
