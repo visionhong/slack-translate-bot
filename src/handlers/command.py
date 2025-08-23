@@ -126,6 +126,86 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
             original_label = "원본 (English)"
             translated_label = "번역 (한국어)"
         
+        # Split long text into multiple section blocks if needed
+        def create_text_sections(text, max_chars=2800):
+            if len(text) <= max_chars:
+                return [{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```{text}```"
+                    }
+                }]
+            
+            sections = []
+            start = 0
+            part_num = 1
+            while start < len(text):
+                end = min(start + max_chars, len(text))
+                # Try to break at word boundary if not at end
+                if end < len(text):
+                    last_space = text.rfind(' ', start, end)
+                    last_newline = text.rfind('\n', start, end)
+                    break_point = max(last_space, last_newline)
+                    if break_point > start:
+                        end = break_point
+                
+                chunk = text[start:end]
+                sections.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```{chunk}```"
+                    }
+                })
+                
+                start = end
+                part_num += 1
+            
+            return sections
+        
+        # Create blocks with sections for original and translated text
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{original_label}*"
+                }
+            }
+        ]
+        
+        # Add original text sections
+        blocks.extend(create_text_sections(original_text))
+        
+        # Add divider
+        blocks.append({
+            "type": "divider"
+        })
+        
+        # Add translated text header
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{translated_label}*"
+            }
+        })
+        
+        # Add translated text sections
+        blocks.extend(create_text_sections(translated_text))
+        
+        # Add context help
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 텍스트를 선택하여 복사하세요. 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
+                }
+            ]
+        })
+        
         await client.views_open(
             trigger_id=trigger_id,
             view={
@@ -139,53 +219,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                     "type": "plain_text",
                     "text": "닫기"
                 },
-                "blocks": [
-                    {
-                        "type": "input",
-                        "block_id": "original_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "original_text",
-                            "multiline": True,
-                            "initial_value": original_text,
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "원본 텍스트"
-                            }
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": original_label
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "translated_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "translated_text",
-                            "multiline": True,
-                            "initial_value": translated_text,
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "번역된 텍스트"
-                            }
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": translated_label
-                        }
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": "💡 텍스트 영역을 클릭하여 전체 내용을 확인하고 편집할 수 있습니다. 텍스트를 선택하여 복사하세요."
-                            }
-                        ]
-                    }
-                ]
+                "blocks": blocks
             }
         )
         
@@ -239,6 +273,86 @@ async def show_translation_result_update(client, view_id, original_text, user_id
             original_label = "원본 (English)"
             translated_label = "번역 (한국어)"
         
+        # Split long text into multiple section blocks if needed
+        def create_text_sections(text, max_chars=2800):
+            if len(text) <= max_chars:
+                return [{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```{text}```"
+                    }
+                }]
+            
+            sections = []
+            start = 0
+            part_num = 1
+            while start < len(text):
+                end = min(start + max_chars, len(text))
+                # Try to break at word boundary if not at end
+                if end < len(text):
+                    last_space = text.rfind(' ', start, end)
+                    last_newline = text.rfind('\n', start, end)
+                    break_point = max(last_space, last_newline)
+                    if break_point > start:
+                        end = break_point
+                
+                chunk = text[start:end]
+                sections.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"```{chunk}```"
+                    }
+                })
+                
+                start = end
+                part_num += 1
+            
+            return sections
+        
+        # Create blocks with sections for original and translated text
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{original_label}*"
+                }
+            }
+        ]
+        
+        # Add original text sections
+        blocks.extend(create_text_sections(original_text))
+        
+        # Add divider
+        blocks.append({
+            "type": "divider"
+        })
+        
+        # Add translated text header
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{translated_label}*"
+            }
+        })
+        
+        # Add translated text sections
+        blocks.extend(create_text_sections(translated_text))
+        
+        # Add context help
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "💡 텍스트를 선택하여 복사하세요. 모달은 팝아웃하여 창 크기를 조정할 수 있습니다."
+                }
+            ]
+        })
+        
         await client.views_update(
             view_id=view_id,
             view={
@@ -252,53 +366,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                     "type": "plain_text",
                     "text": "닫기"
                 },
-                "blocks": [
-                    {
-                        "type": "input",
-                        "block_id": "original_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "original_text",
-                            "multiline": True,
-                            "initial_value": original_text,
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "원본 텍스트"
-                            }
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": original_label
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "translated_text_block",
-                        "element": {
-                            "type": "plain_text_input",
-                            "action_id": "translated_text",
-                            "multiline": True,
-                            "initial_value": translated_text,
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "번역된 텍스트"
-                            }
-                        },
-                        "label": {
-                            "type": "plain_text",
-                            "text": translated_label
-                        }
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": "💡 텍스트 영역을 클릭하여 전체 내용을 확인하고 편집할 수 있습니다. 텍스트를 선택하여 복사하세요."
-                            }
-                        ]
-                    }
-                ]
+                "blocks": blocks
             }
         )
         
