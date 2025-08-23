@@ -10,12 +10,18 @@ logger = logging.getLogger(__name__)
 
 class TranslationService:
     def __init__(self):
-        self.client = AsyncAzureOpenAI(
-            api_key=settings.azure_openai.api_key,
-            api_version=settings.azure_openai.api_version,
-            azure_endpoint=settings.azure_openai.endpoint
-        )
-        self.deployment_name = settings.azure_openai.deployment_name
+        try:
+            self.client = AsyncAzureOpenAI(
+                api_key=settings.azure_openai.api_key,
+                api_version=settings.azure_openai.api_version,
+                azure_endpoint=settings.azure_openai.endpoint
+            )
+            self.deployment_name = settings.azure_openai.deployment_name
+            logger.info("AsyncAzureOpenAI client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+            self.client = None
+            self.deployment_name = settings.azure_openai.deployment_name
     
     def detect_language(self, text: str) -> str:
         # Simple Korean detection - contains Hangul characters
@@ -26,6 +32,11 @@ class TranslationService:
     async def translate(self, text: str, source_lang: Optional[str] = None, target_lang: Optional[str] = None) -> str:
         if not text.strip():
             return text
+        
+        # Check if client is available
+        if self.client is None:
+            logger.error("OpenAI client not available")
+            return f"Translation service unavailable. Original text: {text}"
         
         # Auto-detect language if not provided
         if source_lang is None:
