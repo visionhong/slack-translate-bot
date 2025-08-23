@@ -61,9 +61,11 @@ async def show_translation_input_modal(client, trigger_id):
                             "type": "plain_text_input",
                             "action_id": "text_input",
                             "multiline": True,
+                            "max_length": 3000,
+                            "focus_on_load": True,
                             "placeholder": {
                                 "type": "plain_text",
-                                "text": "번역할 텍스트를 입력하세요..."
+                                "text": "번역할 텍스트를 입력하세요... (최대 3,000자)"
                             }
                         },
                         "label": {
@@ -137,6 +139,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                             "type": "plain_text_input",
                             "action_id": "original_text",
                             "multiline": True,
+                            "max_length": 3000,
                             "initial_value": original_text
                         },
                         "label": {
@@ -161,6 +164,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                             "type": "plain_text_input",
                             "action_id": "translated_text",
                             "multiline": True,
+                            "max_length": 3000,
                             "initial_value": translated_text
                         },
                         "label": {
@@ -173,7 +177,7 @@ async def show_translation_result_modal(client, trigger_id, original_text, user_
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요!"
+                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요! 텍스트 영역은 자동으로 확장됩니다."
                             }
                         ]
                     }
@@ -256,6 +260,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                             "type": "plain_text_input",
                             "action_id": "original_text",
                             "multiline": True,
+                            "max_length": 3000,
                             "initial_value": original_text
                         },
                         "label": {
@@ -280,6 +285,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                             "type": "plain_text_input",
                             "action_id": "translated_text",
                             "multiline": True,
+                            "max_length": 3000,
                             "initial_value": translated_text
                         },
                         "label": {
@@ -292,7 +298,7 @@ async def show_translation_result_update(client, view_id, original_text, user_id
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요!"
+                                "text": "💡 텍스트를 편집하고 복사해서 사용하세요! 텍스트 영역은 자동으로 확장됩니다."
                             }
                         ]
                     }
