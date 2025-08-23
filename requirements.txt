@@ -1,17 +1,11 @@
-# Slack Bot dependencies
-slack-bolt==1.18.0
-aiohttp==3.9.1
+# FastAPI dependencies
+fastapi==0.104.1
+uvicorn==0.24.0
+httpx==0.25.2
 python-dotenv==1.0.0
 
-# Pydantic for configuration
-pydantic==2.5.0
-pydantic-settings==2.1.0
-
-# OpenAI dependencies
+# OpenAI dependencies  
 openai==1.55.3
 
 # Additional async support
 asyncio-throttle==1.0.2
-
-# Basic HTTP requirements
-requests==2.31.0
