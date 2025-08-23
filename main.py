@@ -289,7 +289,7 @@ async def health():
         "environment": os.getenv("ENVIRONMENT", "development")
     }
 
-@app.post("/slack/events")
+@app.post("/api/slack")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
     """Slack 이벤트 및 명령어 처리"""
     try:
