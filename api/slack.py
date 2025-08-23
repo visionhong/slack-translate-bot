@@ -76,7 +76,7 @@ class SimpleTranslationService:
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=100,
+                max_completion_tokens=16384,
                 temperature=0
             )
             
