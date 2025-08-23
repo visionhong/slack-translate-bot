@@ -210,12 +210,12 @@ class handler(BaseHTTPRequestHandler):
                                             ]
                                         }
                                         
-                                    except Exception as e:
-                                        logger.error(f"Translation failed: {e}")
-                                        translation_response = {
-                                            "response_type": "ephemeral",
-                                            "text": f"Translation error: {str(e)}"
-                                        }
+                                except Exception as e:
+                                    logger.error(f"Translation failed: {e}")
+                                    translation_response = {
+                                        "response_type": "ephemeral",
+                                        "text": f"Translation error: {str(e)}"
+                                    }
                                     
                             else:
                                 # Try to show input modal for empty commands
