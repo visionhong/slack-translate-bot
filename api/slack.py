@@ -5,6 +5,7 @@ import logging
 import os
 import requests
 import time
+from openai import AzureOpenAI
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,17 +16,24 @@ class SimpleTranslationService:
         try:
             self.api_key = os.getenv('AZURE_OPENAI_API_KEY')
             self.endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-            self.api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-10-21')
+            self.api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-12-01-preview')
             self.deployment_name = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
             
-            if self.api_key and self.endpoint:
-                logger.info("Translation service configured")
+            if self.api_key and self.endpoint and self.deployment_name:
+                self.client = AzureOpenAI(
+                    api_version=self.api_version,
+                    azure_endpoint=self.endpoint,
+                    api_key=self.api_key
+                )
+                logger.info(f"Translation service configured with deployment: {self.deployment_name}")
                 self.available = True
             else:
-                logger.warning("Translation service not configured - missing environment variables")
+                self.client = None
+                logger.warning(f"Translation service not configured - missing: api_key={bool(self.api_key)}, endpoint={bool(self.endpoint)}, deployment={bool(self.deployment_name)}")
                 self.available = False
         except Exception as e:
             logger.error(f"Failed to initialize translation service: {e}")
+            self.client = None
             self.available = False
     
     def detect_language(self, text: str) -> str:
@@ -53,29 +61,17 @@ class SimpleTranslationService:
             else:
                 prompt = f"Translate the following English text to natural Korean:\n\n{text}"
             
-            # Fix URL formatting
-            endpoint = self.endpoint.rstrip('/')
-            url = f"{endpoint}/openai/deployments/{self.deployment_name}/chat/completions?api-version={self.api_version}"
-            
-            headers = {
-                'api-key': self.api_key,
-                'Content-Type': 'application/json'
-            }
-            
-            payload = {
-                "messages": [
+            response = self.client.chat.completions.create(
+                model=self.deployment_name,
+                messages=[
                     {"role": "system", "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 1000,
-                "temperature": 0.1
-            }
+                max_completion_tokens=1000,
+                temperature=0.1
+            )
             
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            response.raise_for_status()
-            
-            result = response.json()
-            translated_text = result['choices'][0]['message']['content'].strip()
+            translated_text = response.choices[0].message.content.strip()
             logger.info(f"Successfully translated text from {source_lang}")
             return translated_text
             
