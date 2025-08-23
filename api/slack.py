@@ -351,7 +351,17 @@ class handler(BaseHTTPRequestHandler):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f"{original_text[:1000]}\n\n---\n\n{translated_text[:1000]}"
+                                "text": f"*원문:*\n{original_text[:500]}"
+                            }
+                        },
+                        {
+                            "type": "divider"
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*번역:*\n{translated_text[:500]}"
                             }
                         }
                     ]
