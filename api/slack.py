@@ -323,33 +323,18 @@ class handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     logger.warning(f"Failed to parse form-encoded data: {e}")
             
-            # Default response
+            # Silent response for unhandled requests (no chat messages)
             self.send_response(200)
-            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            
-            response = {
-                "status": "received",
-                "message": "Request processed successfully",
-                "content_type": content_type,
-                "data_length": len(post_data),
-                "parsed_command": parsed_data.get('command', 'none') if parsed_data else 'none'
-            }
-            
-            self.wfile.write(json.dumps(response).encode())
+            self.wfile.write(b'')
             
         except Exception as e:
             logger.error(f"POST handler error: {e}")
             self.send_response(500)
-            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            
-            error_response = {
-                "error": "Internal server error",
-                "message": str(e)
-            }
-            
-            self.wfile.write(json.dumps(error_response).encode())
+            self.wfile.write(b'')
     
     
 # Removed processing modal and update functions - direct result modal approach
