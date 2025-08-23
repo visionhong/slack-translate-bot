@@ -146,16 +146,18 @@ def get_request_id(user_id: str, text: str) -> str:
     content = f"{user_id}:{text}"
     return hashlib.md5(content.encode()).hexdigest()[:12]
 
-async def open_translation_modal(trigger_id: str, text: str, translated_text: str):
-    """번역 결과를 모달로 표시"""
+async def try_open_modal_or_fallback(trigger_id: str, response_url: str, text: str, translated_text: str):
+    """모달을 시도하고 실패하면 메시지로 대체"""
     try:
+        # 먼저 모달 시도
         bot_token = os.getenv('SLACK_BOT_TOKEN')
         if not bot_token:
-            logger.error("❌ SLACK_BOT_TOKEN not found")
+            logger.error("❌ SLACK_BOT_TOKEN not found, using fallback")
+            await send_fallback_message(response_url, text, translated_text)
             return
         
-        # 원문과 번역문을 블록으로 구성
-        blocks = [
+        # 모달용 블록 구성
+        modal_blocks = [
             {
                 "type": "section",
                 "text": {
@@ -197,11 +199,11 @@ async def open_translation_modal(trigger_id: str, text: str, translated_text: st
                     "type": "plain_text",
                     "text": "번역 결과"
                 },
-                "blocks": blocks
+                "blocks": modal_blocks
             }
         }
         
-        logger.info("📤 Opening translation result modal...")
+        logger.info("📤 Attempting to open translation modal...")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -220,10 +222,76 @@ async def open_translation_modal(trigger_id: str, text: str, translated_text: st
             if result.get('ok'):
                 logger.info("✅ Successfully opened translation modal")
             else:
-                logger.error(f"❌ Failed to open modal: {result.get('error')}")
+                error = result.get('error', 'unknown')
+                logger.warning(f"⚠️ Modal failed ({error}), using fallback message")
+                # trigger_id 만료 등으로 모달 실패시 메시지로 대체
+                await send_fallback_message(response_url, text, translated_text)
                 
     except Exception as e:
-        logger.error(f"❌ Error opening translation modal: {e}")
+        logger.error(f"❌ Error with modal, using fallback: {e}")
+        await send_fallback_message(response_url, text, translated_text)
+
+async def send_fallback_message(response_url: str, text: str, translated_text: str):
+    """모달 실패시 대체 메시지 전송"""
+    try:
+        # 메시지용 블록 구성 (모달과 동일한 레이아웃)
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "🌐 *번역 완료*"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*원문:*\n```{text}```"
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*번역:*\n```{translated_text}```"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": "💡 텍스트를 선택하여 복사하세요."
+                }]
+            }
+        ]
+        
+        fallback_response = {
+            "response_type": "ephemeral",
+            "text": "🌐 번역 완료",
+            "blocks": blocks
+        }
+        
+        logger.info("📤 Sending fallback translation message...")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                response_url,
+                json=fallback_response,
+                headers={'Content-Type': 'application/json'},
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                logger.info("✅ Successfully sent fallback message")
+            else:
+                logger.error(f"❌ Failed to send fallback: {response.status_code}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error sending fallback message: {e}")
 
 def create_text_blocks(text: str, max_chars: int = 2800) -> list:
     """긴 텍스트를 Slack 블록으로 분할"""
@@ -261,7 +329,8 @@ def create_text_blocks(text: str, max_chars: int = 2800) -> list:
 
 async def process_translation(
     text: str, 
-    trigger_id: str, 
+    trigger_id: str,
+    response_url: str,
     user_id: str, 
     request_id: str
 ):
@@ -272,18 +341,18 @@ async def process_translation(
         # 번역 수행
         translated_text = await translation_service.translate(text)
         
-        # 모달로 결과 표시
-        await open_translation_modal(trigger_id, text, translated_text)
+        # 모달 시도, 실패시 메시지로 대체
+        await try_open_modal_or_fallback(trigger_id, response_url, text, translated_text)
         logger.info(f"✅ Translation completed for request {request_id}")
         
     except Exception as e:
         logger.error(f"❌ Translation processing error: {e}")
         
-        # 에러 모달 표시
+        # 에러 표시 (모달 시도 후 메시지로 대체)
         try:
-            await open_translation_modal(trigger_id, text, f"번역 오류: {str(e)}")
+            await try_open_modal_or_fallback(trigger_id, response_url, text, f"번역 오류: {str(e)}")
         except:
-            logger.error("Failed to show error modal")
+            logger.error("Failed to show error message")
         
     finally:
         # 활성 요청에서 제거
@@ -331,6 +400,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             text = form_data.get('text', '').strip()
             user_id = form_data.get('user_id')
             trigger_id = form_data.get('trigger_id')
+            response_url = form_data.get('response_url')
             
             logger.info(f"📩 Received command: {command} with text: {text[:50]}...")
             
@@ -348,13 +418,14 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     # 백그라운드에서 번역 처리
                     background_tasks.add_task(
                         process_translation,
-                        text, trigger_id, user_id, request_id
+                        text, trigger_id, response_url, user_id, request_id
                     )
                     
                     # 즉시 200 응답 (빈 응답)
                     return JSONResponse(content="")
                     
                 else:
+                    active_requests.discard(request_id)
                     # 사용법 안내
                     return JSONResponse(content={
                         "response_type": "ephemeral",
