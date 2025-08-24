@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import httpx
 from openai import AsyncAzureOpenAI
 import uvicorn
@@ -443,7 +443,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     )
                     
                     # 즉시 200 응답 (빈 응답)
-                    return JSONResponse(content="")
+                    return Response(status_code=200)
                     
                 else:
                     active_requests.discard(request_id)
@@ -454,7 +454,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     })
         
         # 기본 응답
-        return JSONResponse(content="")
+        return Response(status_code=200)
         
     except Exception as e:
         logger.error(f"❌ Error processing request: {e}")
