@@ -38,6 +38,9 @@ app = FastAPI(
 active_requests = set()
 translation_cache = {}
 
+# Slack bot user ID (app mention 이벤트 에서 사용)
+SLACK_BOT_USER_ID = None
+
 class TranslationService:
     def __init__(self):
         self.api_key = os.getenv('AZURE_OPENAI_API_KEY')
@@ -345,7 +348,7 @@ async def process_translation(
     user_id: str, 
     request_id: str
 ):
-    """백그라운드 번역 처리"""
+    """백그라운드 번역 처리 (슬래시 명령어용)"""
     try:
         logger.info(f"🔄 Processing translation for request {request_id}")
         
@@ -375,6 +378,80 @@ async def process_translation(
     finally:
         # 활성 요청에서 제거
         active_requests.discard(request_id)
+
+async def process_mention_translation(
+    text: str,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    request_id: str
+):
+    """백그라운드 멘션 번역 처리 (스레드용)"""
+    try:
+        logger.info(f"💬 Processing mention translation for request {request_id}")
+        
+        # 번역 수행
+        translated_text = await translation_service.translate(text)
+        
+        # 스레드에 답장 전송
+        await send_thread_reply(channel_id, thread_ts, text, translated_text)
+        
+        logger.info(f"✅ Mention translation completed for request {request_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Mention translation processing error: {e}")
+        
+        # 에러 메시지 전송
+        try:
+            await send_thread_reply(channel_id, thread_ts, text, f"번역 오류: {str(e)}")
+        except:
+            logger.error("Failed to send error reply")
+        
+    finally:
+        # 활성 요청에서 제거
+        active_requests.discard(request_id)
+
+async def send_thread_reply(channel_id: str, thread_ts: str, text: str, translated_text: str):
+    """스레드에 번역 결과 답장 전송"""
+    try:
+        bot_token = os.getenv('SLACK_BOT_TOKEN')
+        if not bot_token:
+            logger.error("❌ SLACK_BOT_TOKEN not found")
+            return
+        
+        # 간단한 형태로 답장
+        reply_text = f"{text}\n\n---\n\n{translated_text}"
+        
+        payload = {
+            "channel": channel_id,
+            "thread_ts": thread_ts,
+            "text": reply_text
+        }
+        
+        logger.info(f"💬 Sending thread reply to channel {channel_id}...")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://slack.com/api/chat.postMessage",
+                json=payload,
+                headers={
+                    'Authorization': f'Bearer {bot_token}',
+                    'Content-Type': 'application/json'
+                },
+                timeout=10.0
+            )
+            
+            result = response.json()
+            logger.info(f"Thread reply response: {result}")
+            
+            if result.get('ok'):
+                logger.info("✅ Successfully sent thread reply")
+            else:
+                error = result.get('error', 'unknown')
+                logger.error(f"❌ Failed to send thread reply: {error}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error sending thread reply: {e}")
 
 @app.get("/")
 async def root():
@@ -409,6 +486,42 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             # URL 검증
             if data.get('type') == 'url_verification':
                 return {"challenge": data.get('challenge', '')}
+            
+            # 이벤트 처리 (mention 번역)
+            if data.get('type') == 'event_callback':
+                event = data.get('event', {})
+                
+                # app_mention 이벤트 처리
+                if event.get('type') == 'app_mention':
+                    text = event.get('text', '').strip()
+                    user_id = event.get('user')
+                    channel_id = event.get('channel')
+                    ts = event.get('ts')
+                    
+                    # 봇 멘션 부분 제거
+                    bot_user_id = data.get('authorizations', [{}])[0].get('user_id')
+                    if bot_user_id and f'<@{bot_user_id}>' in text:
+                        text = text.replace(f'<@{bot_user_id}>', '').strip()
+                    
+                    logger.info(f"💬 Received mention: {text[:50]}...")
+                    
+                    if text:
+                        request_id = get_request_id(user_id, text)
+                        
+                        # 중복 요청 체크
+                        if request_id in active_requests:
+                            logger.info(f"Duplicate mention request: {request_id}")
+                            return Response(status_code=200)
+                        
+                        active_requests.add(request_id)
+                        
+                        # 백그라운드에서 번역 처리 (멘션에는 trigger_id가 없으므로 fallback 사용)
+                        background_tasks.add_task(
+                            process_mention_translation,
+                            text, channel_id, ts, user_id, request_id
+                        )
+                    
+                    return Response(status_code=200)
                 
         elif "application/x-www-form-urlencoded" in content_type:
             form_data = await request.form()
