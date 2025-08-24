@@ -92,7 +92,7 @@ class TranslationService:
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are a friendly team communication translator. Translate naturally and conversationally for casual team chat. Keep the tone friendly and approachable, not formal or stiff. Only return the translation."
+                        "content": "You are a friendly team communication translator. Translate naturally and conversationally for casual team chat. Keep the tone friendly and approachable, not formal or stiff. When the subject is not explicitly specified, use first person (I/me) rather than we/us. Only return the translation."
                     },
                     {
                         "role": "user",
