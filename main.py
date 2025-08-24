@@ -160,24 +160,7 @@ async def open_initial_modal(trigger_id: str, text: str):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "🔄 *번역 중...*"
-                }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*원문:*\n```{text}```"
-                }
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*번역:*\n⚙️ 번역 중입니다..."
+                    "text": f"{text}\n\n---\n\n🔄 번역 중..."
                 }
             }
         ]
@@ -238,32 +221,8 @@ async def update_modal_with_translation(view_id: str, text: str, translated_text
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "🌐 *번역 완료*"
+                    "text": f"{text}\n\n---\n\n{translated_text}"
                 }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*원문:*\n```{text}```"
-                }
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*번역:*\n```{translated_text}```"
-                }
-            },
-            {
-                "type": "context",
-                "elements": [{
-                    "type": "mrkdwn",
-                    "text": "💡 텍스트를 선택하여 복사하세요."
-                }]
             }
         ]
         
@@ -316,32 +275,8 @@ async def send_fallback_message(response_url: str, text: str, translated_text: s
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "🌐 *번역 완료*"
+                    "text": f"{text}\n\n---\n\n{translated_text}"
                 }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*원문:*\n```{text}```"
-                }
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*번역:*\n```{translated_text}```"
-                }
-            },
-            {
-                "type": "context",
-                "elements": [{
-                    "type": "mrkdwn",
-                    "text": "💡 텍스트를 선택하여 복사하세요."
-                }]
             }
         ]
         
