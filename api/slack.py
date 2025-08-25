@@ -103,7 +103,7 @@ class SimpleTranslationService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a professional translator. Translate accurately and naturally. Only return the translation."
+                        "content": "You are a professional translator. Translate accurately and naturally. When translating to Korean, always use formal/polite language (존댓말) with appropriate honorific forms (-다, -요, etc.). Only return the translation."
                     },
                     {
                         "role": "user",

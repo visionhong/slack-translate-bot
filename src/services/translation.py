@@ -76,7 +76,7 @@ class TranslationService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a professional translator. Translate the given text accurately and naturally. Only return the translation, no explanations."
+                        "content": "You are a professional translator. Translate the given text accurately and naturally. When translating to Korean, always use formal/polite language (존댓말) with appropriate honorific forms (-다, -요, etc.). Only return the translation, no explanations."
                     },
                     {
                         "role": "user",
